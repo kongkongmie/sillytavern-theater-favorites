@@ -6,5 +6,5 @@ Thumbs.db
 .vscode/
 .idea/
 release/
+backups/
 node_modules/
-
