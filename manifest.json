@@ -1,0 +1,12 @@
+{
+    "display_name": "小剧场收藏夹",
+    "loading_order": 103,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Codex",
+    "version": "0.3.0",
+    "homePage": "https://github.com/kongkongmie/sillytavern-theater-favorites",
+    "auto_update": true
+}

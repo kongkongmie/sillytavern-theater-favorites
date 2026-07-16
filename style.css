@@ -1,0 +1,947 @@
+#theater-favorites-panel {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    z-index: 40020;
+    display: none;
+    width: min(980px, calc(100vw - 32px));
+    height: min(900px, calc(100vh - 36px));
+    height: min(900px, calc(100dvh - 36px));
+    max-height: calc(100vh - 36px);
+    max-height: calc(100dvh - 36px);
+    overflow: hidden;
+    box-sizing: border-box;
+    color: var(--SmartThemeBodyColor, #eee9df);
+    background:
+        linear-gradient(180deg, rgba(31, 32, 43, 0.98), rgba(18, 20, 28, 0.98)),
+        var(--SmartThemeBlurTintColor, rgba(20, 20, 28, 0.98));
+    border: 1px solid rgba(244, 222, 177, 0.16);
+    border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52);
+    transform: translateX(-50%);
+    backdrop-filter: blur(18px);
+    resize: none !important;
+}
+
+#theater-favorites-panel.open {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+#theater-favorites-panel.open.settings-open {
+    grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+#theater-favorites-panel.settings-open .theater-favorites-settings {
+    min-height: 0;
+    overflow: auto;
+}
+
+#theater-favorites-panel.settings-open .theater-favorites-body,
+#theater-favorites-panel.settings-open .theater-favorites-pager {
+    display: none;
+}
+
+#theater-favorites-panel,
+#theater-favorites-panel * {
+    box-sizing: border-box;
+    letter-spacing: 0;
+}
+
+#theater-favorites-panel .menu_button,
+.theater-favorites-button,
+.theater-favorites-mini {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 34px;
+    padding: 0 12px !important;
+    writing-mode: horizontal-tb !important;
+    white-space: nowrap !important;
+    line-height: 1 !important;
+    text-align: center;
+}
+
+#theater-favorites-panel .menu_button span {
+    display: inline !important;
+    writing-mode: horizontal-tb !important;
+    white-space: nowrap !important;
+}
+
+.theater-favorites-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px 20px 12px;
+}
+
+.theater-favorites-brand {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 12px;
+}
+
+.theater-favorites-mark {
+    display: inline-grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    color: #f3dca7;
+    background: rgba(244, 222, 177, 0.12);
+    border: 1px solid rgba(244, 222, 177, 0.18);
+    border-radius: 12px;
+}
+
+.theater-favorites-app-icon,
+.theater-favorites-qr-icon,
+.theater-favorites-menu-icon {
+    display: block;
+    width: 1.2em;
+    height: 1.2em;
+    object-fit: contain;
+    filter: invert(89%) sepia(22%) saturate(706%) hue-rotate(349deg) brightness(101%) contrast(91%);
+}
+
+.theater-favorites-app-icon {
+    width: 26px;
+    height: 26px;
+}
+
+.theater-favorites-qr-icon,
+.theater-favorites-menu-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.theater-favorites-title {
+    min-width: 0;
+    color: #f4e7ca;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.theater-favorites-title span,
+.theater-favorites-sub,
+.theater-favorites-item-main strong,
+.theater-favorites-item-main span {
+    overflow-wrap: anywhere;
+}
+
+.theater-favorites-sub,
+.theater-favorites-empty,
+.theater-favorites-rail-head small {
+    color: var(--SmartThemeEmColor, rgba(235, 231, 222, 0.68));
+    font-size: 13px;
+}
+
+.theater-favorites-icon {
+    flex: 0 0 auto;
+    width: 34px !important;
+    height: 34px;
+    padding: 0 !important;
+    color: rgba(238, 233, 223, 0.9);
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px !important;
+}
+
+.theater-favorites-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 20px 14px;
+}
+
+.theater-favorites-status {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    min-height: 34px;
+    padding: 8px 12px;
+    color: rgba(235, 231, 222, 0.76);
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.theater-favorites-status strong {
+    color: #f4dba1;
+    font-size: 18px;
+}
+
+.theater-favorites-actions,
+.theater-favorites-reader-actions,
+.theater-favorites-settings-row,
+.theater-favorites-pager {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theater-favorites-button {
+    color: #efe7d7 !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 10px !important;
+}
+
+.theater-favorites-button:hover,
+.theater-favorites-mini:hover {
+    color: #fff7e7 !important;
+    border-color: rgba(244, 222, 177, 0.32) !important;
+    background: rgba(244, 222, 177, 0.12) !important;
+}
+
+.theater-favorites-primary {
+    color: #181818 !important;
+    background: #e9cf95 !important;
+    border-color: rgba(244, 222, 177, 0.72) !important;
+}
+
+.theater-favorites-danger {
+    color: #ffd9d9 !important;
+    border-color: rgba(255, 130, 130, 0.2) !important;
+}
+
+.theater-favorites-mini {
+    width: 34px !important;
+    height: 34px;
+    padding: 0 !important;
+    color: rgba(238, 233, 223, 0.86) !important;
+    background: rgba(255, 255, 255, 0.055) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px !important;
+}
+
+.theater-favorites-mini:disabled {
+    cursor: default;
+    opacity: 0.36;
+}
+
+.theater-favorites-settings[hidden] {
+    display: none !important;
+}
+
+.theater-favorites-settings {
+    display: grid;
+    gap: 12px;
+    margin: 0 20px 14px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.045);
+    border: 1px solid rgba(244, 222, 177, 0.14);
+    border-radius: 12px;
+}
+
+.theater-favorites-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.theater-favorites-settings label {
+    display: grid;
+    gap: 6px;
+    color: rgba(235, 231, 222, 0.72);
+    font-size: 13px;
+}
+
+.theater-favorites-settings input[type="text"] {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    color: var(--SmartThemeBodyColor, #eee9df);
+    background: rgba(7, 9, 14, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+
+.theater-favorites-check {
+    display: flex !important;
+    grid-template-columns: none !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.theater-favorites-health,
+.theater-favorites-tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.theater-favorites-tag-editor {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.theater-favorites-tag-row {
+    align-items: center;
+}
+
+.theater-favorites-tag-row small {
+    color: rgba(235, 231, 222, 0.48);
+}
+
+.theater-favorites-tag-row span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.theater-favorites-tag-remove {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0.62;
+}
+
+.theater-favorites-tag-remove:hover {
+    background: rgba(255, 255, 255, 0.1);
+    opacity: 1;
+}
+
+.theater-favorites-tag-add-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.theater-favorites-tag-add-row input {
+    width: min(220px, 52vw);
+    height: 34px;
+    padding: 0 9px;
+    color: var(--SmartThemeBodyColor, #eee9df);
+    background: rgba(7, 9, 14, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.theater-favorites-health span,
+.theater-favorites-tag-row span,
+.theater-favorites-source-badge {
+    padding: 4px 7px;
+    color: rgba(235, 231, 222, 0.72);
+    font-size: 11px;
+    font-style: normal;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+}
+
+.theater-favorites-health .ok { color: #a9dfc1; }
+.theater-favorites-health .bad { color: #efb0b0; }
+
+.theater-favorites-settings-row {
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.theater-favorites-storage {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.theater-favorites-storage > div:first-child {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.theater-favorites-storage > div:first-child span {
+    color: rgba(235, 231, 222, 0.66);
+    font-size: 12px;
+    text-align: right;
+}
+
+.theater-favorites-storage p {
+    margin: 0;
+    padding: 9px 10px;
+    color: #e9d7a7;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(215, 171, 83, 0.1);
+    border-left: 3px solid rgba(235, 196, 113, 0.72);
+}
+
+.theater-favorites-storage p.strong {
+    color: #f0b9b9;
+    background: rgba(192, 76, 76, 0.12);
+    border-left-color: rgba(224, 108, 108, 0.8);
+}
+
+.theater-favorites-storage-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.theater-favorites-storage-action {
+    display: grid;
+    align-content: start;
+    gap: 7px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.theater-favorites-storage-action > button {
+    justify-self: start;
+}
+
+.theater-favorites-storage-action small {
+    color: rgba(235, 231, 222, 0.58);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.theater-favorites-storage-action.danger small {
+    color: rgba(239, 190, 190, 0.72);
+}
+
+.theater-favorites-body {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.theater-favorites-filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(110px, 1fr));
+    gap: 8px;
+    padding: 0 18px 12px;
+}
+
+.theater-favorites-filters input,
+.theater-favorites-filters select {
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    padding: 0 9px;
+    color: var(--SmartThemeBodyColor, #eee9df);
+    background: rgba(7, 9, 14, 0.46);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.theater-favorites-rail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 14px 18px 10px;
+    color: #efe1c0;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.theater-favorites-list {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+}
+
+.theater-favorites-list {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    padding: 0 18px 16px;
+}
+
+.theater-favorites-entry {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.theater-favorites-entry.active {
+    border-color: transparent;
+    box-shadow: none;
+}
+
+.theater-favorites-item-toggle {
+    display: grid !important;
+    grid-template-columns: 36px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 64px;
+    padding: 12px !important;
+    color: var(--SmartThemeBodyColor, #eee9df) !important;
+    text-align: left !important;
+    background: transparent !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    cursor: pointer;
+}
+
+.theater-favorites-item-toggle:hover,
+.theater-favorites-entry.active .theater-favorites-item-toggle {
+    background: rgba(244, 222, 177, 0.08) !important;
+    border-color: rgba(244, 222, 177, 0.28) !important;
+}
+
+.theater-favorites-item-no {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    color: #f1d89d;
+    font-size: 12px;
+    font-weight: 700;
+    background: rgba(244, 222, 177, 0.1);
+    border-radius: 9px;
+}
+
+.theater-favorites-item-main {
+    display: grid;
+    min-width: 0;
+    gap: 5px;
+}
+
+.theater-favorites-item-main strong {
+    color: #f3ead8;
+    font-size: 14px;
+    line-height: 1.25;
+}
+
+.theater-favorites-item-main > span {
+    color: rgba(235, 231, 222, 0.58);
+    font-size: 12px;
+    line-height: 1.25;
+}
+
+.theater-favorites-item-chevron {
+    color: rgba(235, 231, 222, 0.58);
+    transition: transform 120ms ease;
+}
+
+.theater-favorites-entry.active .theater-favorites-item-chevron {
+    transform: rotate(180deg);
+}
+
+.theater-favorites-expanded {
+    display: grid;
+    gap: 12px;
+    padding: 12px 6px 18px;
+    border-top: 0;
+}
+
+.theater-favorites-source-line,
+.theater-favorites-preview-label {
+    color: rgba(235, 231, 222, 0.66);
+    font-size: 12px;
+}
+
+.theater-favorites-preview-label {
+    color: #76c7bd;
+    font-weight: 700;
+}
+
+.theater-favorites-reader-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    padding-top: 14px;
+}
+
+.theater-favorites-preview {
+    min-height: 0;
+    padding: 0;
+    overflow: visible;
+    color: var(--SmartThemeBodyColor, #eee9df);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.theater-favorites-preview details {
+    margin: 0 0 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.theater-favorites-preview summary {
+    cursor: pointer;
+    color: #f4dba1;
+    font-weight: 700;
+}
+
+.theater-favorites-preview ccd,
+.theater-favorites-preview snow,
+.theater-favorites-preview pre,
+.theater-favorites-plain-preview {
+    display: block;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.theater-favorites-preview pre,
+.theater-favorites-plain-preview {
+    margin: 10px 0 0;
+    padding: 12px;
+    color: rgba(235, 231, 222, 0.88);
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.theater-favorites-html-frame {
+    display: block;
+    width: 100%;
+    height: 300px;
+    min-height: 300px;
+    max-height: none;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.theater-favorites-raw {
+    margin-top: 12px;
+    color: rgba(235, 231, 222, 0.78);
+}
+
+.theater-favorites-raw summary {
+    cursor: pointer;
+}
+
+.theater-favorites-raw pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 12px;
+    color: rgba(235, 231, 222, 0.82);
+    background: rgba(7, 9, 14, 0.32);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.theater-favorites-pager {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 58px;
+    justify-content: center;
+    min-height: 58px;
+    padding: 12px 16px;
+    background: rgba(18, 20, 28, 0.98);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.theater-favorites-pager span {
+    min-width: 68px;
+    color: rgba(235, 231, 222, 0.7);
+    text-align: center;
+    font-size: 13px;
+}
+
+.theater-favorites-empty {
+    padding: 18px;
+    line-height: 1.6;
+}
+
+.theater-favorites-anchor {
+    position: relative;
+}
+
+.theater-favorites-save {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 28px;
+    padding: 0 9px;
+    color: #f2ddb1;
+    background: rgba(18, 19, 30, 0.82);
+    border: 1px solid rgba(234, 211, 163, 0.28);
+    border-radius: 9px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+}
+
+.theater-favorites-save:disabled {
+    cursor: default;
+    opacity: 0.48;
+}
+
+.theater-favorites-save:hover:not(:disabled),
+.theater-favorites-save:focus-visible:not(:disabled) {
+    border-color: rgba(244, 222, 177, 0.62);
+    background: rgba(18, 19, 30, 0.92);
+}
+
+.theater-favorites-message-save {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 34px;
+    min-height: 30px;
+    padding: 0 9px;
+    color: #f5dfaa;
+    background: rgba(18, 19, 30, 0.72);
+    border: 1px solid rgba(244, 222, 177, 0.32);
+    border-radius: 999px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+    cursor: pointer;
+    opacity: 0.72;
+    backdrop-filter: blur(10px);
+    transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.theater-favorites-message-save:hover,
+.theater-favorites-message-save:focus-visible {
+    border-color: rgba(244, 222, 177, 0.62);
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.theater-favorites-message-save:disabled {
+    cursor: default;
+    opacity: 0.38;
+    transform: none;
+}
+
+.theater-favorites-message-save span {
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.theater-favorites-loreframe-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 8px 0;
+    padding: 7px 9px;
+    color: #3f514a;
+    font-size: 12px;
+    background: rgba(239, 244, 241, 0.94);
+    border: 1px solid rgba(72, 103, 88, 0.18);
+    border-radius: 8px;
+}
+
+.theater-favorites-loreframe-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 11px;
+    color: #29483a;
+    font: inherit;
+    font-weight: 700;
+    background: #fff;
+    border: 1px solid rgba(48, 91, 70, 0.28);
+    border-radius: 7px;
+    cursor: pointer;
+}
+
+.theater-favorites-loreframe-save:hover:not(:disabled) {
+    border-color: rgba(28, 116, 73, 0.62);
+    background: #f6fbf8;
+}
+
+.theater-favorites-loreframe-save:disabled {
+    cursor: default;
+    opacity: 0.52;
+}
+
+.theater-favorites-loreframe-overlay-save {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    right: auto;
+    z-index: 100001;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    padding: 7px;
+    color: #314b40;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(49, 75, 64, 0.22);
+    border-radius: 50%;
+    box-shadow: 0 8px 24px rgba(22, 31, 28, 0.18);
+    cursor: pointer;
+}
+
+.theater-favorites-loreframe-overlay-save img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+}
+
+.theater-favorites-loreframe-overlay-save .theater-favorites-loreframe-label {
+    display: none;
+}
+
+.theater-favorites-loreframe-overlay-save:hover:not(:disabled) {
+    border-color: rgba(28, 116, 73, 0.55);
+    transform: translateY(-1px);
+}
+
+.theater-favorites-loreframe-overlay-save:disabled {
+    cursor: default;
+    opacity: 0.58;
+}
+
+@media (max-width: 760px) {
+    .theater-favorites-loreframe-overlay-save {
+        height: 40px;
+        padding: 8px;
+    }
+
+    .theater-favorites-loreframe-label {
+        display: none;
+    }
+}
+
+@media (max-width: 760px) {
+    #theater-favorites-panel {
+        top: 8px;
+        width: calc(100vw - 16px);
+        height: calc(100vh - 16px);
+        height: calc(100dvh - 16px);
+        max-height: calc(100vh - 16px);
+        max-height: calc(100dvh - 16px);
+        border-radius: 12px;
+    }
+
+    #theater-favorites-panel.open {
+        grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    }
+
+    #theater-favorites-panel.open.settings-open {
+        grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .theater-favorites-head,
+    .theater-favorites-toolbar {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    .theater-favorites-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .theater-favorites-actions {
+        justify-content: stretch;
+    }
+
+    .theater-favorites-actions .theater-favorites-button {
+        flex: 1 1 0;
+    }
+
+    .theater-favorites-settings {
+        margin-left: 14px;
+        margin-right: 14px;
+    }
+
+    .theater-favorites-settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .theater-favorites-storage-actions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .theater-favorites-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0 14px 10px;
+    }
+
+    .theater-favorites-filters input {
+        grid-column: 1 / -1;
+    }
+
+    .theater-favorites-body {
+        grid-template-columns: none;
+    }
+
+    .theater-favorites-list {
+        height: 100%;
+        max-height: none;
+        padding: 14px;
+    }
+
+    .theater-favorites-preview {
+        min-height: 0;
+    }
+
+    .theater-favorites-html-frame {
+        height: 260px;
+        min-height: 260px;
+        max-height: none;
+    }
+
+    .theater-favorites-reader-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 460px) {
+    .theater-favorites-title {
+        font-size: 18px;
+    }
+
+    .theater-favorites-mark {
+        width: 36px;
+        height: 36px;
+    }
+
+    .theater-favorites-button {
+        padding: 0 10px !important;
+    }
+
+    .theater-favorites-item-toggle {
+        grid-template-columns: 30px minmax(0, 1fr) 20px;
+    }
+
+    .theater-favorites-item-no {
+        width: 28px;
+        height: 28px;
+    }
+}
