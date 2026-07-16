@@ -1,0 +1,50 @@
+# 小剧场收藏夹 v0.3.0
+
+一个给 SillyTavern 使用的小剧场收藏、阅读和管理插件。
+
+可以收藏 `<snow>`、HTML/正则渲染、details 折叠小剧场，也可实验性兼容拟界文库。收藏完整保存在自己的 SillyTavern 本地，不会上传到外部服务器。
+
+## 功能
+
+- 聊天中的每个小剧场都有独立收藏按钮
+- 多个小剧场可以分别收藏
+- 收藏夹一次只展开一条，避免同时渲染太多内容
+- 支持搜索、角色、聊天、来源和标签筛选
+- 支持重命名、标签、删除、排序
+- 支持 JSON 完整备份与导入
+- 支持导出浏览器可直接打开的 HTML 阅读版
+- 使用完整内容 SHA-256 避免重复收藏
+
+## 安装
+
+### 1. 在酒馆里安装
+
+打开 SillyTavern 的“扩展 → 安装扩展”，粘贴：
+
+```text
+https://github.com/kongkongmie/sillytavern-theater-favorites
+```
+
+### 2. 运行一次后端安装器
+
+Windows：双击扩展文件夹里的 `install-server-plugin.bat`。
+
+安卓 Termux / Linux / Mac / 云服务器：
+
+```sh
+node SillyTavern/public/scripts/extensions/third-party/theater-favorites/install-server-plugin.js
+```
+
+### 3. 重启酒馆
+
+看到“安装完成”后，重启 SillyTavern，再刷新浏览器。收藏夹设置中显示“前端已加载、后端已连接”就是成功。
+
+完整图文安装手册见附件。
+
+## 提醒
+
+- 插件由前端和后端两部分组成，首次安装需要运行一次安装器。
+- 平常更新只需使用酒馆扩展更新；只有更新说明特别要求时才重新安装后端。
+- HTML 小剧场可能包含作者写入的脚本或外部资源，请只收藏和运行可信内容。
+
+项目地址：<https://github.com/kongkongmie/sillytavern-theater-favorites>
