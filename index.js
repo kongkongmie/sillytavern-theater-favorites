@@ -54,6 +54,10 @@ function attrEscape(value) {
     return htmlEscape(value).replaceAll('`', '&#96;');
 }
 
+function sortableDelay() {
+    return window.matchMedia?.('(pointer: coarse)').matches ? 750 : 50;
+}
+
 function loadSettings() {
     try {
         return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
@@ -134,6 +138,22 @@ function titleFromCandidate(candidate) {
     return shortText(candidate.plainText || candidate.rawSource || '未命名小剧场', 28) || '未命名小剧场';
 }
 
+function configuredTagPattern() {
+    const tags = state.settings.tagNames
+        .map(tag => String(tag || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .filter(Boolean);
+    return tags.length ? new RegExp(`</?(?:${tags.join('|')})\\b[^>]*>`, 'gi') : null;
+}
+
+function looksLikeRunnableMarkup(value) {
+    return /<(?:!doctype|html|head|body|style|script|link|meta|div|section|article|details|summary|table|ul|ol|li|p|br|span|img|button|input|select|textarea|canvas|svg)\\b/i.test(String(value || ''));
+}
+
+function stripConfiguredTags(value) {
+    const pattern = configuredTagPattern();
+    return pattern ? String(value || '').replace(pattern, '') : String(value || '');
+}
+
 function makeCandidateId(type, messageId, index, marker) {
     return `${EXT_ID}-${type}-${messageId ?? 'x'}-${index}-${String(marker || '').replace(/[^\w-]+/g, '-').slice(0, 28)}`;
 }
@@ -152,13 +172,15 @@ function extractTagCandidates(messageElement, rawMessage, messageId) {
                 .replace(new RegExp(`<\\/${tag}>$`, 'i'), '');
             const rendered = findRenderedSnapshot(messageElement, tag, index, inner);
             const cleanRendered = cloneWithoutFavoriteButtons(rendered);
+            const renderedText = cleanRendered?.innerText || cleanRendered?.textContent || '';
+            const innerIsMarkup = looksLikeRunnableMarkup(inner);
             candidates.push({
                 id: makeCandidateId('tag', messageId, index, tag),
-                type: /<[^>]+>/.test(inner) ? 'tag-html' : 'tag-regex',
+                type: innerIsMarkup ? 'tag-html' : 'tag-regex',
                 sourceTag: tag,
                 rawSource,
-                renderedHtml: cleanRendered?.outerHTML || inner,
-                plainText: cleanRendered?.innerText || stripTags(inner),
+                renderedHtml: innerIsMarkup ? (cleanRendered?.outerHTML || inner) : '',
+                plainText: innerIsMarkup ? (renderedText || stripTags(inner)) : stripConfiguredTags(inner),
                 anchor: rendered || messageElement,
                 messageId,
             });
@@ -169,13 +191,17 @@ function extractTagCandidates(messageElement, rawMessage, messageId) {
             const candidateId = makeCandidateId('tagdom', messageId, index, tag);
             if (candidates.some(item => item.rawSource === rawSource || item.id === candidateId)) return;
             const cleanElement = cloneWithoutFavoriteButtons(element);
+            const elementHtml = element.innerHTML || '';
+            const elementIsMarkup = looksLikeRunnableMarkup(elementHtml);
             candidates.push({
                 id: candidateId,
-                type: /<[^>]+>/.test(element.innerHTML || '') ? 'tag-html' : 'tag-regex',
+                type: elementIsMarkup ? 'tag-html' : 'tag-regex',
                 sourceTag: tag,
                 rawSource,
-                renderedHtml: cleanElement?.outerHTML || element.outerHTML,
-                plainText: cleanElement?.innerText || cleanElement?.textContent || element.innerText || element.textContent || '',
+                renderedHtml: elementIsMarkup ? (cleanElement?.outerHTML || element.outerHTML) : '',
+                plainText: elementIsMarkup
+                    ? (cleanElement?.innerText || cleanElement?.textContent || element.innerText || element.textContent || '')
+                    : stripConfiguredTags(elementHtml),
                 anchor: element,
                 messageId,
             });
@@ -323,14 +349,27 @@ function sanitizeInlinePreview(html) {
 }
 
 function plainPreviewHtml(value) {
+    return `<pre class="${EXT_ID}-plain-preview">${htmlEscape(value)}</pre>`;
+}
+
+function sourceToPlainText(value) {
+    const text = String(value || '');
+    if (!looksLikeRunnableMarkup(text)) return stripConfiguredTags(text);
     const template = document.createElement('template');
-    template.innerHTML = String(value || '');
-    const text = template.content.textContent || '';
-    return `<pre class="${EXT_ID}-plain-preview">${htmlEscape(text)}</pre>`;
+    template.innerHTML = text;
+    return template.content.textContent || text;
+}
+
+function editableSource(item) {
+    return item.rawSource || item.renderedHtml || item.plainText || '';
 }
 
 function buildPreviewHtml(item) {
     const rawBody = stripOuterSourceTag(item.rawSource || '', item.sourceTag);
+    const textOnlyBody = stripConfiguredTags(rawBody);
+    if (item.sourceType === 'tag-regex' || item.sourceType === 'details-text') {
+        return plainPreviewHtml(textOnlyBody || item.plainText || '');
+    }
     const inlineBody = unwrapDetailsForPreview(rawBody);
     const token = `${item.id}-${Date.now()}`;
     const runnable = bestRunnableHtml(item, rawBody);
@@ -1250,17 +1289,25 @@ function renderList() {
         list.innerHTML = '<div class="theater-favorites-empty">还没有收藏。聊天里的小剧场旁会出现收藏按钮。</div>';
         return;
     }
-    const pageOffset = (state.page - 1) * state.pageSize;
     list.innerHTML = state.items.map((item, index) => `
-        ${renderTheaterListItem(item, index, pageOffset)}
+        ${renderTheaterListItem(item, index)}
     `).join('');
     list.querySelectorAll(`.${EXT_ID}-item-toggle[data-id]`).forEach(button => {
-        button.addEventListener('click', () => selectTheater(button.dataset.id || '').catch(showError));
+        button.addEventListener('click', event => {
+            if (event.target.closest(`.${EXT_ID}-drag-handle`)) return;
+            selectTheater(button.dataset.id || '').catch(showError);
+        });
     });
+    initListSortable(list);
     list.querySelector(`#${EXT_ID}-read-prev`)?.addEventListener('click', () => selectNeighbor(-1));
     list.querySelector(`#${EXT_ID}-read-next`)?.addEventListener('click', () => selectNeighbor(1));
+    list.querySelector(`#${EXT_ID}-move-up`)?.addEventListener('click', () => moveSelected('up').catch(showError));
+    list.querySelector(`#${EXT_ID}-move-down`)?.addEventListener('click', () => moveSelected('down').catch(showError));
     list.querySelector(`#${EXT_ID}-delete`)?.addEventListener('click', () => deleteSelected().catch(showError));
     list.querySelector(`#${EXT_ID}-rename`)?.addEventListener('click', () => renameSelected().catch(showError));
+    list.querySelector(`#${EXT_ID}-edit`)?.addEventListener('click', () => toggleSelectedEditor(true));
+    list.querySelector(`#${EXT_ID}-edit-cancel`)?.addEventListener('click', () => toggleSelectedEditor(false));
+    list.querySelector(`#${EXT_ID}-edit-save`)?.addEventListener('click', () => saveSelectedContent().catch(showError));
     list.querySelector(`#${EXT_ID}-tag-add`)?.addEventListener('click', () => addSelectedTag().catch(showError));
     list.querySelector(`#${EXT_ID}-tag-input`)?.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
@@ -1273,19 +1320,21 @@ function renderList() {
     });
 }
 
-function renderTheaterListItem(item, index, pageOffset) {
+function renderTheaterListItem(item) {
     const active = item.id === state.selectedId;
     const sourceLine = [item.character?.name, item.chat?.name, item.createdAt ? new Date(item.createdAt).toLocaleString() : ''].filter(Boolean).join(' · ');
     return `
         <article class="${EXT_ID}-entry ${active ? 'active' : ''}" data-id="${htmlEscape(item.id)}">
-            <button class="${EXT_ID}-item-toggle" type="button" data-id="${htmlEscape(item.id)}" aria-expanded="${active ? 'true' : 'false'}">
-                <span class="${EXT_ID}-item-no">${String(pageOffset + index + 1).padStart(2, '0')}</span>
-                <span class="${EXT_ID}-item-main">
-                    <strong>${htmlEscape(item.title || '未命名小剧场')}</strong>
-                    <span><em class="${EXT_ID}-source-badge">${htmlEscape(sourceLabel(item))}</em> ${htmlEscape([item.character?.name, item.chat?.name, item.sizeBytes ? formatBytes(item.sizeBytes) : ''].filter(Boolean).join(' · ') || '未知来源')}</span>
-                </span>
-                <i class="fa-solid fa-chevron-down ${EXT_ID}-item-chevron"></i>
-            </button>
+            <div class="${EXT_ID}-entry-head">
+                <span class="${EXT_ID}-drag-handle" data-id="${htmlEscape(item.id)}" title="拖动排序" aria-label="拖动排序"><i class="fa-solid fa-grip-vertical"></i></span>
+                <button class="${EXT_ID}-item-toggle" type="button" data-id="${htmlEscape(item.id)}" aria-expanded="${active ? 'true' : 'false'}">
+                    <span class="${EXT_ID}-item-main">
+                        <strong>${htmlEscape(item.title || '未命名小剧场')}</strong>
+                        <span><em class="${EXT_ID}-source-badge">${htmlEscape(sourceLabel(item))}</em> ${htmlEscape([item.character?.name, item.chat?.name, item.sizeBytes ? formatBytes(item.sizeBytes) : ''].filter(Boolean).join(' · ') || '未知来源')}</span>
+                    </span>
+                    <i class="fa-solid fa-chevron-down ${EXT_ID}-item-chevron"></i>
+                </button>
+            </div>
             ${active ? renderExpandedTheater(item, sourceLine) : ''}
         </article>
     `;
@@ -1298,13 +1347,28 @@ function renderExpandedTheater(item, sourceLine) {
     const selectedIndex = state.items.findIndex(entry => entry.id === state.selectedId);
     const absoluteIndex = (state.page - 1) * state.pageSize + selectedIndex + 1;
     const previewHtml = buildPreviewHtml(item);
+    const editing = Boolean(item.editingContent);
+    const editorHtml = editing ? `
+        <div class="${EXT_ID}-content-editor">
+            <label for="${EXT_ID}-content-input">编辑原文</label>
+            <textarea id="${EXT_ID}-content-input" spellcheck="false">${htmlEscape(editableSource(item))}</textarea>
+            <div class="${EXT_ID}-content-editor-actions">
+                <button id="${EXT_ID}-edit-save" class="menu_button ${EXT_ID}-button ${EXT_ID}-primary" type="button"><i class="fa-solid fa-floppy-disk"></i><span>保存正文</span></button>
+                <button id="${EXT_ID}-edit-cancel" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-xmark"></i><span>取消</span></button>
+            </div>
+            <small>保存会更新这条收藏的原文、预览、搜索内容和去重签名；不会改聊天记录里的原消息。</small>
+        </div>
+    ` : '';
     return `
         <div class="${EXT_ID}-expanded">
             <div class="${EXT_ID}-reader-actions">
                 <button id="${EXT_ID}-read-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一条" ${selectedIndex <= 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
                 <button id="${EXT_ID}-read-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一条" ${selectedIndex >= state.items.length - 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                <button id="${EXT_ID}-move-up" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex <= 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i><span>上移</span></button>
+                <button id="${EXT_ID}-move-down" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex >= state.total ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i><span>下移</span></button>
                 <button id="${EXT_ID}-delete" class="menu_button ${EXT_ID}-button ${EXT_ID}-danger" type="button"><i class="fa-solid fa-trash-can"></i><span>删除</span></button>
                 <button id="${EXT_ID}-rename" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-pen"></i><span>重命名</span></button>
+                <button id="${EXT_ID}-edit" class="menu_button ${EXT_ID}-button" type="button" ${editing ? 'disabled' : ''}><i class="fa-solid fa-file-pen"></i><span>编辑正文</span></button>
             </div>
             <div class="${EXT_ID}-source-line">${htmlEscape(sourceLine || `第 ${absoluteIndex} 条`)}</div>
             <div class="${EXT_ID}-tag-editor">
@@ -1316,6 +1380,7 @@ function renderExpandedTheater(item, sourceLine) {
                     <button id="${EXT_ID}-tag-add" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-plus"></i><span>添加</span></button>
                 </div>
             </div>
+            ${editorHtml}
             <div class="${EXT_ID}-preview-label">渲染预览</div>
             <div class="${EXT_ID}-preview">${previewHtml}</div>
             <details class="${EXT_ID}-raw">
@@ -1334,6 +1399,33 @@ async function saveSelectedMetadata(item, changes) {
     Object.assign(item, data.theater, { detailLoaded: true });
     renderList();
     await refreshFilterOptions();
+}
+
+function toggleSelectedEditor(open) {
+    const item = state.items.find(entry => entry.id === state.selectedId);
+    if (!item) return;
+    item.editingContent = Boolean(open);
+    renderList();
+}
+
+async function saveSelectedContent() {
+    const item = state.items.find(entry => entry.id === state.selectedId);
+    const input = document.querySelector(`#${EXT_ID}-content-input`);
+    if (!item || !input) return;
+    const rawSource = String(input.value || '');
+    if (!rawSource.trim()) return notify('正文不能为空。', 'error');
+    await saveSelectedMetadata(item, {
+        rawSource,
+        renderedHtml: rawSource,
+        plainText: sourceToPlainText(rawSource),
+        sourceType: looksLikeRunnableMarkup(rawSource) ? (item.sourceType || 'edited') : 'tag-regex',
+        sourceTag: item.sourceTag || '',
+    });
+    item.editingContent = false;
+    renderList();
+    state.savedSignaturesLoaded = false;
+    await loadSavedSignatures({ force: true }).catch(() => {});
+    notify('正文已保存。', 'success');
 }
 
 async function refreshFilterOptions() {
@@ -1367,6 +1459,40 @@ async function removeSelectedTag(tag) {
     if (!item || !tag) return;
     await saveSelectedMetadata(item, { tags: (item.tags || []).filter(value => value !== tag) });
     notify('标签已删除。', 'success');
+}
+
+function initListSortable(list) {
+    if (!list || !window.jQuery?.fn?.sortable) return;
+    const $list = window.jQuery(list);
+    if ($list.sortable('instance') !== undefined) $list.sortable('destroy');
+    $list.sortable({
+        items: `.${EXT_ID}-entry`,
+        handle: `.${EXT_ID}-drag-handle`,
+        delay: sortableDelay(),
+        axis: 'y',
+        tolerance: 'pointer',
+        cancel: `.${EXT_ID}-expanded, input, textarea, select, button, a`,
+        placeholder: `${EXT_ID}-drag-placeholder`,
+        start: (_event, ui) => {
+            ui.item.addClass(`${EXT_ID}-drag-source`);
+            ui.placeholder.height(ui.item.outerHeight());
+        },
+        stop: async (_event, ui) => {
+            ui.item.removeClass(`${EXT_ID}-drag-source`);
+            const orderedIds = [...list.querySelectorAll(`.${EXT_ID}-entry[data-id]`)].map(entry => entry.dataset.id).filter(Boolean);
+            if (orderedIds.length < 2) return;
+            state.items = orderedIds.map(id => state.items.find(item => item.id === id)).filter(Boolean);
+            await reorderVisibleTheaters(orderedIds).catch(showError);
+        },
+    });
+}
+
+async function reorderVisibleTheaters(orderedIds) {
+    await api('/theaters/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ orderedIds }),
+    });
+    notify('顺序已保存。', 'success');
 }
 
 async function selectTheater(id) {
@@ -1407,6 +1533,18 @@ function selectNeighbor(delta) {
     const next = state.items[currentIndex + delta];
     if (!next) return;
     selectTheater(next.id).catch(showError);
+}
+
+async function moveSelected(direction) {
+    if (!state.selectedId) return;
+    const query = new URLSearchParams({ limit: state.pageSize, offset: (state.page - 1) * state.pageSize });
+    Object.entries(state.filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+    await api(`/theaters/${encodeURIComponent(state.selectedId)}/move?${query}`, {
+        method: 'POST',
+        body: JSON.stringify({ direction }),
+    });
+    await loadTheaters();
+    notify(direction === 'up' ? '已上移。' : '已下移。', 'success');
 }
 
 async function deleteSelected() {
@@ -1455,17 +1593,57 @@ function addLauncher() {
     button.tabIndex = 0;
     button.classList.toggle(`${EXT_ID}-send-form-launcher`, target === sendFormTarget);
     if (button.parentElement !== target || target.firstElementChild !== button) target.prepend(button);
+    cleanupDuplicateLaunchers(button);
+}
+
+function cleanupDuplicateLaunchers(activeButton) {
+    activeButton.classList.remove(`${EXT_ID}-duplicate-launcher`);
+    activeButton.removeAttribute('aria-hidden');
+    const roots = [
+        document.querySelector('#qr--bar'),
+        document.querySelector('#rightSendForm'),
+        document.querySelector('#leftSendForm'),
+    ].filter(Boolean);
+    roots.forEach(root => {
+        const duplicateNodes = new Set();
+        root.querySelectorAll(`#${EXT_ID}-open, .${EXT_ID}-qr, .${EXT_ID}-qr-icon`).forEach(node => {
+            const launcher = node.closest(`#${EXT_ID}-open, .${EXT_ID}-qr, .qr--button, button, [role="button"], .interactable`);
+            if (launcher && launcher !== activeButton) duplicateNodes.add(launcher);
+        });
+        root.querySelectorAll(`img[src*="theater-favorites"][src*="theater-play.png"]`).forEach(node => {
+            const launcher = node.closest(`#${EXT_ID}-open, .${EXT_ID}-qr, .qr--button, button, [role="button"], .interactable`);
+            if (launcher && launcher !== activeButton) duplicateNodes.add(launcher);
+        });
+        duplicateNodes.forEach(node => {
+            node.classList.add(`${EXT_ID}-duplicate-launcher`);
+            node.setAttribute('aria-hidden', 'true');
+        });
+    });
 }
 
 function addMenuEntry() {
     const menu = document.querySelector('#extensionsMenu');
-    if (!menu || document.querySelector(`#${EXT_ID}-menu-entry`)) return;
-    menu.insertAdjacentHTML('beforeend', `
-        <div id="${EXT_ID}-menu-entry" class="list-group-item flex-container flexGap5 interactable" title="打开小剧场收藏夹" tabindex="0">
-            <img class="${EXT_ID}-menu-icon" src="${ICON_SRC}" alt=""><span>小剧场收藏夹</span>
-        </div>
-    `);
-    document.querySelector(`#${EXT_ID}-menu-entry`)?.addEventListener('click', openPanel);
+    if (!menu) return;
+    let entry = document.querySelector(`#${EXT_ID}-menu-entry`);
+    if (!entry) {
+        entry = document.createElement('div');
+        entry.id = `${EXT_ID}-menu-entry`;
+        entry.className = 'list-group-item flex-container flexGap5 interactable';
+        entry.tabIndex = 0;
+        menu.append(entry);
+    }
+    entry.title = '打开小剧场收藏夹';
+    entry.innerHTML = `<span class="${EXT_ID}-menu-icon" aria-hidden="true"></span><span>小剧场收藏夹</span>`;
+    if (!entry.dataset.theaterFavoritesBound) {
+        entry.dataset.theaterFavoritesBound = '1';
+        entry.addEventListener('click', openPanel);
+        entry.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openPanel();
+            }
+        });
+    }
 }
 
 function init() {

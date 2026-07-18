@@ -148,6 +148,7 @@ function normalizeTheater(input, index) {
         sourceTag: cleanText(input.sourceTag || '', 80),
         detailsSummary: cleanText(input.detailsSummary || '', 300),
         title: cleanText(input.title || input.detailsSummary || '未命名小剧场', 300),
+        sortOrder: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : Date.now(),
         rawSource: cleanFullText(input.rawSource || ''),
         renderedHtml: cleanFullText(input.renderedHtml || ''),
         plainText: cleanFullText(input.plainText || ''),
@@ -180,6 +181,8 @@ function summary(theater) {
     return {
         id: theater.id,
         createdAt: theater.createdAt,
+        updatedAt: theater.updatedAt,
+        sortOrder: theater.sortOrder,
         sourceType: theater.sourceType,
         sourceTag: theater.sourceTag,
         detailsSummary: theater.detailsSummary,
@@ -201,6 +204,8 @@ function listSummary(theater, sizeBytes = 0) {
     return {
         id: theater.id,
         createdAt: theater.createdAt,
+        updatedAt: theater.updatedAt,
+        sortOrder: theater.sortOrder,
         sourceType: theater.sourceType,
         sourceTag: theater.sourceTag,
         detailsSummary: theater.detailsSummary,
@@ -211,6 +216,19 @@ function listSummary(theater, sizeBytes = 0) {
         signature: signature(theater.rawSource || theater.plainText || theater.renderedHtml || ''),
         sizeBytes,
     };
+}
+
+function displayOrderValue(item) {
+    const explicit = Number(item?.sortOrder);
+    if (Number.isFinite(explicit)) return explicit;
+    const created = Date.parse(item?.createdAt || '');
+    return Number.isFinite(created) ? created : 0;
+}
+
+function compareDisplayItems(left, right) {
+    return displayOrderValue(right) - displayOrderValue(left)
+        || String(right.createdAt || '').localeCompare(String(left.createdAt || ''))
+        || String(right.id || '').localeCompare(String(left.id || ''));
 }
 
 function rebuildIndex(storePath, previousIndex = null) {
@@ -259,8 +277,7 @@ function readTheaters(storePath, index, query = {}) {
     const chat = String(query.chat || '').trim();
     const source = String(query.source || '').trim();
     const tag = String(query.tag || '').trim();
-    const allItems = [...(index.items || [])];
-    const rows = allItems.reverse().filter(item => {
+    const rows = [...(index.items || [])].sort(compareDisplayItems).filter(item => {
         if (search && ![item.title, item.character?.name, item.chat?.name, ...(item.tags || [])]
             .some(value => String(value || '').toLowerCase().includes(search))) return false;
         if (character && String(item.character?.name || '') !== character) return false;
@@ -318,6 +335,70 @@ function readTheater(storePath, index, id) {
     } catch {
         return null;
     }
+}
+
+function updateIndexItem(storePath, index, theater) {
+    const sizeBytes = writeTheaterFile(storePath, theater);
+    const position = (index.items || []).findIndex(item => item.id === theater.id);
+    if (position >= 0) index.items[position] = listSummary(theater, sizeBytes);
+    return sizeBytes;
+}
+
+function moveTheater(storePath, index, id, direction) {
+    const ordered = [...(index.items || [])].sort(compareDisplayItems);
+    const current = ordered.findIndex(item => item.id === id);
+    const target = current + direction;
+    if (current < 0) {
+        const error = new Error('收藏不存在。');
+        error.status = 404;
+        throw error;
+    }
+    if (target < 0 || target >= ordered.length) return { moved: false, index };
+
+    const currentTheater = readTheater(storePath, index, ordered[current].id);
+    const targetTheater = readTheater(storePath, index, ordered[target].id);
+    if (!currentTheater || !targetTheater) {
+        const error = new Error('收藏文件缺失，无法调整顺序。');
+        error.status = 404;
+        throw error;
+    }
+
+    const currentOrder = displayOrderValue(ordered[current]);
+    const targetOrder = displayOrderValue(ordered[target]);
+    currentTheater.sortOrder = targetOrder;
+    targetTheater.sortOrder = currentOrder;
+    currentTheater.updatedAt = nowIso();
+    targetTheater.updatedAt = nowIso();
+    updateIndexItem(storePath, index, currentTheater);
+    updateIndexItem(storePath, index, targetTheater);
+    saveIndex(storePath, index);
+    return { moved: true, index };
+}
+
+function reorderTheaters(storePath, index, orderedIds = []) {
+    const uniqueIds = [...new Set((orderedIds || []).map(id => String(id || '').trim()).filter(Boolean))];
+    if (uniqueIds.length < 2) return { reordered: false, index };
+    const existingIds = new Set((index.items || []).map(item => item.id));
+    const ids = uniqueIds.filter(id => existingIds.has(id));
+    if (ids.length < 2) return { reordered: false, index };
+
+    const ordered = [...(index.items || [])].sort(compareDisplayItems);
+    const visiblePositions = ids
+        .map(id => ordered.findIndex(item => item.id === id))
+        .filter(position => position >= 0)
+        .sort((left, right) => left - right);
+    if (visiblePositions.length !== ids.length) return { reordered: false, index };
+
+    const orderValues = visiblePositions.map(position => displayOrderValue(ordered[position]));
+    ids.forEach((id, offset) => {
+        const theater = readTheater(storePath, index, id);
+        if (!theater) return;
+        theater.sortOrder = orderValues[offset];
+        theater.updatedAt = nowIso();
+        updateIndexItem(storePath, index, theater);
+    });
+    saveIndex(storePath, index);
+    return { reordered: true, index };
 }
 
 function getStorageStats(storePath, index) {
@@ -519,15 +600,51 @@ async function init(router) {
             const id = String(request.params.id || '');
             const theater = readTheater(storePath, index, id);
             if (!theater) return response.status(404).json({ ok: false, error: '收藏不存在。' });
-            theater.title = cleanText(request.body?.title ?? theater.title, 300);
-            theater.tags = Array.isArray(request.body?.tags) ? request.body.tags.map(tag => cleanText(tag, 60)).filter(Boolean).slice(0, 20) : theater.tags;
+
+            const body = request.body || {};
+            theater.title = cleanText(body.title ?? theater.title, 300);
+            theater.tags = Array.isArray(body.tags) ? body.tags.map(tag => cleanText(tag, 60)).filter(Boolean).slice(0, 20) : theater.tags;
+            theater.sourceType = body.sourceType !== undefined ? cleanText(body.sourceType || 'edited', 80) : theater.sourceType;
+            theater.sourceTag = body.sourceTag !== undefined ? cleanText(body.sourceTag || '', 80) : theater.sourceTag;
+            theater.detailsSummary = body.detailsSummary !== undefined ? cleanText(body.detailsSummary || '', 300) : theater.detailsSummary;
+            theater.rawSource = body.rawSource !== undefined ? cleanFullText(body.rawSource) : theater.rawSource;
+            theater.renderedHtml = body.renderedHtml !== undefined ? cleanFullText(body.renderedHtml) : theater.renderedHtml;
+            theater.plainText = body.plainText !== undefined ? cleanFullText(body.plainText) : theater.plainText;
+
+            const nextSignature = signature(theater.rawSource || theater.renderedHtml || theater.plainText || '');
+            const duplicate = (index.items || []).find(item => item.id !== id && item.signature === nextSignature);
+            if (duplicate) {
+                return response.status(409).json({ ok: false, error: '编辑后的内容和另一条收藏重复。', duplicateId: duplicate.id });
+            }
+
             theater.updatedAt = nowIso();
-            const sizeBytes = writeTheaterFile(storePath, theater);
-            const position = index.items.findIndex(item => item.id === id);
-            if (position >= 0) index.items[position] = listSummary(theater, sizeBytes);
+            const sizeBytes = updateIndexItem(storePath, index, theater);
             saveIndex(storePath, index);
-            response.json({ ok: true, theater: summary(theater) });
+            response.json({ ok: true, theater: { ...summary(theater), signature: signature(theater.rawSource || theater.renderedHtml || theater.plainText || ''), sizeBytes } });
         } catch (error) { handleError(response, error); }
+    });
+
+    router.post('/theaters/:id/move', (request, response) => {
+        try {
+            const storePath = getStorePath(request);
+            const index = readIndex(storePath);
+            const direction = String(request.body?.direction || '') === 'down' ? 1 : -1;
+            const result = moveTheater(storePath, index, String(request.params.id || ''), direction);
+            response.json({ ok: true, moved: result.moved, ...readTheaters(storePath, result.index, request.query || {}) });
+        } catch (error) {
+            handleError(response, error);
+        }
+    });
+
+    router.post('/theaters/reorder', (request, response) => {
+        try {
+            const storePath = getStorePath(request);
+            const index = readIndex(storePath);
+            const result = reorderTheaters(storePath, index, request.body?.orderedIds || []);
+            response.json({ ok: true, reordered: result.reordered });
+        } catch (error) {
+            handleError(response, error);
+        }
     });
 
     router.get('/theaters/:id', (request, response) => {
@@ -585,7 +702,7 @@ module.exports = {
     info: {
         id: 'theater-favorites',
         name: '小剧场收藏夹',
-        version: '0.3.0',
+        version: '0.4.0',
         description: 'Collects theater snippets into per-user local files with a lightweight index.',
     },
 };
