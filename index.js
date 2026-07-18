@@ -1433,16 +1433,26 @@ function addLauncher() {
     }
     let button = document.querySelector(`#${EXT_ID}-open`);
     if (!button) {
-        button = document.createElement('button');
+        button = document.createElement('div');
         button.id = `${EXT_ID}-open`;
-        button.className = `${EXT_ID}-qr qr--button`;
-        button.type = 'button';
+        button.className = `${EXT_ID}-qr qr--button interactable`;
+        button.tabIndex = 0;
+        button.setAttribute('role', 'button');
         button.title = '小剧场收藏夹';
         button.setAttribute('aria-label', '打开小剧场收藏夹');
         button.innerHTML = `<span class="${EXT_ID}-qr-icon" aria-hidden="true"></span>`;
         button.addEventListener('click', togglePanel);
+        button.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                togglePanel();
+            }
+        });
     }
-    button.classList.add(`${EXT_ID}-qr`, 'qr--button');
+    button.classList.add(`${EXT_ID}-qr`, 'qr--button', 'interactable');
+    button.removeAttribute('type');
+    button.setAttribute('role', 'button');
+    button.tabIndex = 0;
     button.classList.toggle(`${EXT_ID}-send-form-launcher`, target === sendFormTarget);
     if (button.parentElement !== target || target.firstElementChild !== button) target.prepend(button);
 }
