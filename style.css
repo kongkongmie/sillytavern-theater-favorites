@@ -1,4 +1,6 @@
 #theater-favorites-panel {
+    --theater-favorites-text: #eee9df;
+    --theater-favorites-muted: rgba(235, 231, 222, 0.68);
     position: fixed;
     top: 18px;
     left: 50%;
@@ -11,10 +13,11 @@
     max-height: calc(100dvh - 36px);
     overflow: hidden;
     box-sizing: border-box;
-    color: var(--SmartThemeBodyColor, #eee9df);
+    color: var(--theater-favorites-text);
+    color-scheme: dark;
     background:
         linear-gradient(180deg, rgba(31, 32, 43, 0.98), rgba(18, 20, 28, 0.98)),
-        var(--SmartThemeBlurTintColor, rgba(20, 20, 28, 0.98));
+        rgba(20, 20, 28, 0.98);
     border: 1px solid rgba(244, 222, 177, 0.16);
     border-radius: 14px;
     box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52);
@@ -24,8 +27,16 @@
 }
 
 #theater-favorites-panel.open {
-    display: grid;
+    display: grid !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+#theater-favorites-panel:not(.open) {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
 
 #theater-favorites-panel.open.settings-open {
@@ -109,6 +120,68 @@
     filter: invert(89%) sepia(22%) saturate(706%) hue-rotate(349deg) brightness(101%) contrast(91%);
 }
 
+#theater-favorites-open.theater-favorites-qr {
+    appearance: none !important;
+    position: static !important;
+    inset: auto !important;
+    z-index: auto !important;
+    display: inline-flex !important;
+    flex: 0 0 30px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    margin: 3px 0 !important;
+    padding: 5px !important;
+    overflow: hidden !important;
+    font-size: 0 !important;
+    line-height: 1 !important;
+    writing-mode: horizontal-tb !important;
+    transform: none !important;
+    cursor: pointer !important;
+}
+
+#rightSendForm > #theater-favorites-open.theater-favorites-send-form-launcher,
+#leftSendForm > #theater-favorites-open.theater-favorites-send-form-launcher {
+    flex: 0 0 30px !important;
+    width: 30px !important;
+    min-width: 30px !important;
+    max-width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    margin: 0 !important;
+    padding: 6px !important;
+    align-self: center !important;
+    order: 0 !important;
+}
+
+#theater-favorites-open.theater-favorites-qr .theater-favorites-qr-icon {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 16px !important;
+    min-width: 16px !important;
+    max-width: 16px !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: currentColor !important;
+    background-image: none !important;
+    -webkit-mask: url('/scripts/extensions/third-party/theater-favorites/assets/theater-play.png') center / contain no-repeat !important;
+    mask: url('/scripts/extensions/third-party/theater-favorites/assets/theater-play.png') center / contain no-repeat !important;
+    line-height: 1 !important;
+    object-fit: contain !important;
+    filter: none !important;
+    transform: none !important;
+}
+
 .theater-favorites-app-icon {
     width: 26px;
     height: 26px;
@@ -137,16 +210,16 @@
 .theater-favorites-sub,
 .theater-favorites-empty,
 .theater-favorites-rail-head small {
-    color: var(--SmartThemeEmColor, rgba(235, 231, 222, 0.68));
+    color: var(--theater-favorites-muted);
     font-size: 13px;
 }
 
-.theater-favorites-icon {
+#theater-favorites-panel .theater-favorites-icon {
     flex: 0 0 auto;
     width: 34px !important;
     height: 34px;
     padding: 0 !important;
-    color: rgba(238, 233, 223, 0.9);
+    color: rgba(238, 233, 223, 0.9) !important;
     background: rgba(255, 255, 255, 0.06) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 10px !important;
@@ -254,14 +327,18 @@
     font-size: 13px;
 }
 
-.theater-favorites-settings input[type="text"] {
+#theater-favorites-panel .theater-favorites-settings input[type="text"] {
     width: 100%;
     min-height: 38px;
     padding: 8px 10px;
-    color: var(--SmartThemeBodyColor, #eee9df);
-    background: rgba(7, 9, 14, 0.38);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--theater-favorites-text) !important;
+    -webkit-text-fill-color: var(--theater-favorites-text) !important;
+    caret-color: var(--theater-favorites-text);
+    color-scheme: dark;
+    background: rgba(7, 9, 14, 0.38) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     border-radius: 10px;
+    box-shadow: none !important;
 }
 
 .theater-favorites-check {
@@ -325,14 +402,18 @@
     gap: 7px;
 }
 
-.theater-favorites-tag-add-row input {
+#theater-favorites-panel .theater-favorites-tag-add-row input {
     width: min(220px, 52vw);
     height: 34px;
     padding: 0 9px;
-    color: var(--SmartThemeBodyColor, #eee9df);
-    background: rgba(7, 9, 14, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--theater-favorites-text) !important;
+    -webkit-text-fill-color: var(--theater-favorites-text) !important;
+    caret-color: var(--theater-favorites-text);
+    color-scheme: dark;
+    background: rgba(7, 9, 14, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 8px;
+    box-shadow: none !important;
 }
 
 .theater-favorites-health span,
@@ -438,16 +519,37 @@
     padding: 0 18px 12px;
 }
 
-.theater-favorites-filters input,
-.theater-favorites-filters select {
+#theater-favorites-panel .theater-favorites-filters input,
+#theater-favorites-panel .theater-favorites-filters select {
     width: 100%;
     min-width: 0;
     height: 36px;
     padding: 0 9px;
-    color: var(--SmartThemeBodyColor, #eee9df);
-    background: rgba(7, 9, 14, 0.46);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--theater-favorites-text) !important;
+    -webkit-text-fill-color: var(--theater-favorites-text) !important;
+    caret-color: var(--theater-favorites-text);
+    color-scheme: dark;
+    background: rgba(7, 9, 14, 0.46) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
     border-radius: 8px;
+    box-shadow: none !important;
+}
+
+#theater-favorites-panel input::placeholder {
+    color: var(--theater-favorites-muted) !important;
+    opacity: 1;
+}
+
+#theater-favorites-panel select option {
+    color: var(--theater-favorites-text) !important;
+    -webkit-text-fill-color: var(--theater-favorites-text) !important;
+    background: #12141c !important;
+}
+
+#theater-favorites-panel button i,
+#theater-favorites-panel button i::before {
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
 }
 
 .theater-favorites-rail-head {
@@ -495,7 +597,7 @@
     width: 100%;
     min-height: 64px;
     padding: 12px !important;
-    color: var(--SmartThemeBodyColor, #eee9df) !important;
+    color: var(--theater-favorites-text) !important;
     text-align: left !important;
     background: transparent !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -576,7 +678,7 @@
     min-height: 0;
     padding: 0;
     overflow: visible;
-    color: var(--SmartThemeBodyColor, #eee9df);
+    color: var(--theater-favorites-text);
     background: transparent;
     border: 0;
     border-radius: 0;
@@ -596,18 +698,19 @@
     font-weight: 700;
 }
 
-.theater-favorites-preview ccd,
-.theater-favorites-preview snow,
-.theater-favorites-preview pre,
-.theater-favorites-plain-preview {
-    display: block;
+#theater-favorites-panel .theater-favorites-preview ccd,
+#theater-favorites-panel .theater-favorites-preview snow,
+#theater-favorites-panel .theater-favorites-preview pre,
+#theater-favorites-panel .theater-favorites-plain-preview {
+    display: block !important;
     max-width: 100%;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    white-space: pre-wrap !important;
+    overflow-wrap: anywhere !important;
+    line-height: 1.65 !important;
 }
 
-.theater-favorites-preview pre,
-.theater-favorites-plain-preview {
+#theater-favorites-panel .theater-favorites-preview pre,
+#theater-favorites-panel .theater-favorites-plain-preview {
     margin: 10px 0 0;
     padding: 12px;
     color: rgba(235, 231, 222, 0.88);

@@ -279,10 +279,10 @@ function bestRunnableHtml(item, rawBody) {
 }
 
 function addPreviewResizeBridge(html, token) {
-    const transparentCanvas = '<style id="theater-favorites-canvas-reset">html,body{background-color:transparent!important}</style>';
+    const transparentCanvas = '<style id="theater-favorites-canvas-reset">:where(html){color:#eee9df;color-scheme:dark;background-color:transparent}:where(body){background-color:transparent}</style>';
     const bridge = `<script>(function(){var queued=false;var send=function(){if(queued)return;queued=true;requestAnimationFrame(function(){queued=false;var body=document.body;var root=document.documentElement;var height=Math.max(root.scrollHeight,root.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);parent.postMessage({type:'theater-favorites-resize',token:${JSON.stringify(token)},height:height},'*')})};addEventListener('load',send);addEventListener('resize',send);new MutationObserver(send).observe(document.documentElement,{subtree:true,childList:true,attributes:true});if(window.ResizeObserver){var observer=new ResizeObserver(send);observer.observe(document.documentElement);if(document.body)observer.observe(document.body)}setTimeout(send,100);setTimeout(send,600)})();<\/script>`;
-    let documentHtml = /<\/head\s*>/i.test(html)
-        ? html.replace(/<\/head\s*>/i, `${transparentCanvas}</head>`)
+    let documentHtml = /<head\b[^>]*>/i.test(html)
+        ? html.replace(/<head\b[^>]*>/i, match => `${match}${transparentCanvas}`)
         : `${transparentCanvas}${html}`;
     return /<\/body\s*>/i.test(documentHtml)
         ? documentHtml.replace(/<\/body\s*>/i, `${bridge}</body>`)
@@ -322,6 +322,13 @@ function sanitizeInlinePreview(html) {
     return template.innerHTML;
 }
 
+function plainPreviewHtml(value) {
+    const template = document.createElement('template');
+    template.innerHTML = String(value || '');
+    const text = template.content.textContent || '';
+    return `<pre class="${EXT_ID}-plain-preview">${htmlEscape(text)}</pre>`;
+}
+
 function buildPreviewHtml(item) {
     const rawBody = stripOuterSourceTag(item.rawSource || '', item.sourceTag);
     const inlineBody = unwrapDetailsForPreview(rawBody);
@@ -341,11 +348,17 @@ function buildPreviewHtml(item) {
         return sanitizeInlinePreview(inlineBody);
     }
 
-    if (item.renderedHtml) {
-        return sanitizeInlinePreview(item.renderedHtml);
+    if (inlineBody) {
+        return plainPreviewHtml(inlineBody);
     }
 
-    return `<pre class="${EXT_ID}-plain-preview">${htmlEscape(item.plainText || '')}</pre>`;
+    if (item.renderedHtml) {
+        return /<\w+[\s>]/.test(item.renderedHtml)
+            ? sanitizeInlinePreview(item.renderedHtml)
+            : plainPreviewHtml(item.renderedHtml);
+    }
+
+    return plainPreviewHtml(item.plainText || '');
 }
 
 function handlePreviewResize(event) {
@@ -857,6 +870,8 @@ function scheduleScan() {
     if (state.scanTimer) return;
     state.scanTimer = window.setTimeout(() => {
         state.scanTimer = 0;
+        addLauncher();
+        addMenuEntry();
         addFavoriteButtons();
     }, 250);
 }
@@ -1168,6 +1183,10 @@ function closePanel() {
     document.querySelector(`#${EXT_ID}-panel`)?.classList.remove('open');
 }
 
+function handleGlobalKeydown(event) {
+    if (event.key === 'Escape' && state.open) closePanel();
+}
+
 function togglePanel() {
     if (state.open) closePanel();
     else openPanel();
@@ -1405,26 +1424,27 @@ function changePage(delta) {
 }
 
 function addLauncher() {
-    if (document.querySelector(`#${EXT_ID}-open`)) return;
-    const target = document.querySelector('#qr--bar > .qr--buttons') || document.querySelector('#qr--bar') || document.querySelector('#rightSendForm');
+    const sendFormTarget = document.querySelector('#rightSendForm') || document.querySelector('#leftSendForm');
+    const quickReplyTarget = document.querySelector('#qr--bar > .qr--buttons') || document.querySelector('#qr--bar');
+    const target = quickReplyTarget || sendFormTarget;
     if (!target) {
         window.setTimeout(addLauncher, 800);
         return;
     }
-    const button = document.createElement('div');
-    button.id = `${EXT_ID}-open`;
-    button.className = `qr--button ${EXT_ID}-qr interactable`;
-    button.tabIndex = 0;
-    button.title = '小剧场收藏夹';
-    button.innerHTML = `<img class="${EXT_ID}-qr-icon qr--button-icon" src="${ICON_SRC}" alt=""><span class="qr--hidden">小剧场收藏夹</span>`;
-    button.addEventListener('click', togglePanel);
-    button.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            togglePanel();
-        }
-    });
-    target.append(button);
+    let button = document.querySelector(`#${EXT_ID}-open`);
+    if (!button) {
+        button = document.createElement('button');
+        button.id = `${EXT_ID}-open`;
+        button.className = `${EXT_ID}-qr qr--button`;
+        button.type = 'button';
+        button.title = '小剧场收藏夹';
+        button.setAttribute('aria-label', '打开小剧场收藏夹');
+        button.innerHTML = `<span class="${EXT_ID}-qr-icon" aria-hidden="true"></span>`;
+        button.addEventListener('click', togglePanel);
+    }
+    button.classList.add(`${EXT_ID}-qr`, 'qr--button');
+    button.classList.toggle(`${EXT_ID}-send-form-launcher`, target === sendFormTarget);
+    if (button.parentElement !== target || target.firstElementChild !== button) target.prepend(button);
 }
 
 function addMenuEntry() {
@@ -1446,6 +1466,7 @@ function init() {
     addLauncher();
     addMenuEntry();
     window.addEventListener('message', handlePreviewResize);
+    document.addEventListener('keydown', handleGlobalKeydown);
     globalThis.TheaterFavoritesOpen = openPanel;
     loadSavedSignatures().then(() => addFavoriteButtons()).catch(() => {});
 }
