@@ -1,5 +1,14 @@
 # 更新日志
 
+## v0.4.2 - 2026-07-19
+
+- 修复后端安装器把旧版本备份留在 `SillyTavern/plugins/` 下，导致酒馆把 `theater-favorites.backup-*` 误当成多个服务器插件的问题。
+- 旧备份会在重新安装时自动迁移到 `SillyTavern/backups/theater-favorites/`；今后的后端和 `config.yaml` 备份也统一保存在这里。
+- 为复制式安装的收藏夹后端增加本地 Git 边界，阻止服务器插件自动更新器向上误认 SillyTavern 根仓库，从而避免收藏夹触发 `detected dubious ownership`。
+- 安装过程改为先写入临时目录、成功后再替换正式后端；失败时会尝试恢复旧后端，降低安装中断造成插件缺失的风险。
+- Windows 批处理入口现在会保留 Node 安装器的失败状态；安装失败时不再继续显示误导性的 `Done`。
+- 不自动修改 Git 全局 `safe.directory`，也不改动其他服务器插件。若 tavern-notes 等其他插件仍报告相同错误，需要单独处理酒馆目录所有权或关闭服务器插件自动更新。
+
 ## v0.4.1 - 2026-07-19
 
 - 修复 Windows 后端安装器 `install-server-plugin.bat` 使用 LF 换行时，`cmd.exe` 会把带空格的安装路径拆坏，导致出现“不是内部或外部命令”的问题。

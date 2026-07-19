@@ -14,6 +14,15 @@ if errorlevel 1 (
 )
 
 node "%~dp0install-server-plugin.js" %*
+set "installer_exit=%errorlevel%"
+if not "%installer_exit%"=="0" (
+    echo.
+    echo [Theater Favorites] Installation failed. Review the error above.
+    echo.
+    pause
+    exit /b %installer_exit%
+)
+
 echo.
 echo [Theater Favorites] Done. Restart SillyTavern, then refresh the browser page.
 echo.

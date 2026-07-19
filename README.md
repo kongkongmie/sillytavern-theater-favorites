@@ -30,6 +30,12 @@ node SillyTavern/public/scripts/extensions/third-party/theater-favorites/install
 
 安装器会自动复制后端、备份配置并开启后端插件功能，不需要手动修改文件。
 
+后端与配置备份统一保存在：
+
+```text
+SillyTavern/backups/theater-favorites/
+```
+
 ### 第三步：重启酒馆
 
 看到“安装完成”后，重启 SillyTavern，再刷新浏览器。打开小剧场收藏夹的“设置”，看到“前端已加载”和“后端已连接”就成功了。
@@ -45,6 +51,26 @@ node SillyTavern/public/scripts/extensions/third-party/theater-favorites/install
 - 支持搜索、角色/聊天/来源筛选、自定义标签、重命名、编辑正文和手动排序。
 - 支持完整 JSON 备份的导入导出，以及浏览器可打开的 HTML 阅读副本。
 - 实验性兼容拟界文库，可在识别设置中关闭。
+
+## v0.4.2 安装器热修
+
+- 修复旧后端备份被放在 `plugins` 目录后，酒馆把它们误当成多个服务器插件并尝试 Git 更新的问题。
+- 重新运行安装器会自动把旧备份迁移到 `SillyTavern/backups/theater-favorites/`，今后的后端和配置备份也统一保存在这里。
+- 复制式安装的收藏夹后端会阻止 Git 向上误认 SillyTavern 根仓库，不再由收藏夹触发 `detected dubious ownership`。
+- 安装失败时批处理不会再错误显示 `Done`；安装器会尽量恢复更新前的旧后端。
+- v0.4.2 不修改其他服务器插件，也不会自动写入全局 Git `safe.directory`。
+
+### 如果启动时仍显示 `detected dubious ownership`
+
+先确认报错里的插件名称。更新到 v0.4.2 并重新运行安装器后，`theater-favorites` 和 `theater-favorites.backup-*` 不应再触发该错误。
+
+如果剩下的是 tavern-notes 或其他服务器插件，说明 SillyTavern 根目录的所有者与当前运行账号不同，这是该插件或酒馆安装目录自身的 Git 权限问题。可以在 `config.yaml` 中设置：
+
+```yaml
+enableServerPluginsAutoUpdate: false
+```
+
+然后重启酒馆，服务器插件改为手动更新。只有在确认该 SillyTavern 目录确实属于自己且可信时，才应考虑执行 Git 错误信息给出的 `safe.directory` 命令。
 
 ## v0.4.1 修复
 
