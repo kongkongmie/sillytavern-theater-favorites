@@ -1,9 +1,20 @@
 @echo off
-chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-node "%~dp0install-server-plugin.js"
+
+where node >nul 2>nul
+if errorlevel 1 (
+    echo [Theater Favorites] Node.js was not found.
+    echo [Theater Favorites] Please run this installer on the same machine where SillyTavern is installed.
+    echo [Theater Favorites] If SillyTavern can start normally, open a terminal in the SillyTavern folder and run:
+    echo node "%~dp0install-server-plugin.js"
+    echo.
+    pause
+    exit /b 1
+)
+
+node "%~dp0install-server-plugin.js" %*
 echo.
-echo 完成后请重启 SillyTavern，再刷新浏览器页面。
+echo [Theater Favorites] Done. Restart SillyTavern, then refresh the browser page.
 echo.
 pause

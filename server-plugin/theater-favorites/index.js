@@ -302,6 +302,7 @@ function readTheaters(storePath, index, query = {}) {
 function sourceLabel(item) {
     if (item.sourceType === 'loreframe-html') return '拟界文库';
     if (item.sourceType === 'details') return 'details';
+    if (item.sourceType === 'tag-markdown') return 'Markdown';
     if (item.sourceTag) return item.sourceTag;
     if (/html/i.test(item.sourceType || '') || /<html|<!doctype/i.test(item.rawSource || '')) return 'HTML';
     return item.sourceType || '其他';
@@ -316,6 +317,36 @@ function uniqueValues(items, getter) {
         });
     });
     return [...values].sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function tagStats(index) {
+    const counts = new Map();
+    (index.items || []).forEach(item => {
+        [...new Set(item.tags || [])].forEach(tag => {
+            const name = String(tag || '').trim();
+            if (name) counts.set(name, (counts.get(name) || 0) + 1);
+        });
+    });
+    return [...counts.entries()]
+        .map(([name, count]) => ({ name, count }))
+        .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+}
+
+function removeTagFromAllTheaters(storePath, index, tag) {
+    let updated = 0;
+    for (const item of index.items || []) {
+        if (!(item.tags || []).includes(tag)) continue;
+        const theater = readTheater(storePath, index, item.id);
+        if (!theater) continue;
+        const nextTags = (theater.tags || []).filter(value => value !== tag);
+        if (nextTags.length === (theater.tags || []).length) continue;
+        theater.tags = nextTags;
+        theater.updatedAt = nowIso();
+        updateIndexItem(storePath, index, theater);
+        updated += 1;
+    }
+    if (updated) saveIndex(storePath, index);
+    return updated;
 }
 
 function readAllTheaters(storePath, index) {
@@ -547,6 +578,29 @@ async function init(router) {
         }
     });
 
+    router.get('/tags', (request, response) => {
+        try {
+            const storePath = getStorePath(request);
+            const index = readIndex(storePath);
+            response.json({ ok: true, tags: tagStats(index) });
+        } catch (error) {
+            handleError(response, error);
+        }
+    });
+
+    router.delete('/tags/:tag', (request, response) => {
+        try {
+            const tag = cleanText(request.params.tag || '', 60).trim();
+            if (!tag) return response.status(400).json({ ok: false, error: '标签不能为空。' });
+            const storePath = getStorePath(request);
+            const index = readIndex(storePath);
+            const updated = removeTagFromAllTheaters(storePath, index, tag);
+            response.json({ ok: true, tag, updated, tags: tagStats(index) });
+        } catch (error) {
+            handleError(response, error);
+        }
+    });
+
     router.get('/export/backup', (request, response) => {
         try {
             const storePath = getStorePath(request);
@@ -702,7 +756,7 @@ module.exports = {
     info: {
         id: 'theater-favorites',
         name: '小剧场收藏夹',
-        version: '0.4.0',
+        version: '0.4.1',
         description: 'Collects theater snippets into per-user local files with a lightweight index.',
     },
 };

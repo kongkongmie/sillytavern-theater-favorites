@@ -72,7 +72,7 @@ function enableServerPlugins(rootDirectory) {
     }
 
     if (next !== original) fs.writeFileSync(configPath, next, 'utf8');
-    console.log('[小剧场收藏夹] 已开启后端插件功能，并备份 config.yaml。');
+    console.log(`[小剧场收藏夹] 已开启后端插件功能，并备份 config.yaml：${backup}`);
 }
 
 try {
@@ -81,7 +81,7 @@ try {
         : findSillyTavernRoot(__dirname);
 
     if (!rootDirectory || !isSillyTavernRoot(rootDirectory)) {
-        throw new Error('没有找到 SillyTavern。请确认本文件位于酒馆已安装的小剧场收藏夹扩展目录中。');
+        throw new Error('没有找到 SillyTavern。请确认本文件位于酒馆已安装的小剧场收藏夹扩展目录中，或在命令后手动传入 SillyTavern 根目录。');
     }
 
     console.log(`[小剧场收藏夹] 找到 SillyTavern：${rootDirectory}`);

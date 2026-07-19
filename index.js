@@ -149,6 +149,37 @@ function looksLikeRunnableMarkup(value) {
     return /<(?:!doctype|html|head|body|style|script|link|meta|div|section|article|details|summary|table|ul|ol|li|p|br|span|img|button|input|select|textarea|canvas|svg)\\b/i.test(String(value || ''));
 }
 
+function looksLikeMarkdownSource(value) {
+    return /(^|\n)\s{0,3}#{1,6}\s+\S|(^|\n)\s{0,3}>\s+\S|(^|\n)\s*(?:[-*+]|\d+\.)\s+\S|(^|\n)\s*```|(?:\*\*|__)[\s\S]+?(?:\*\*|__)|(?:^|[^\w])(?:\*|_)[^\s*_][\s\S]*?[^\s*_](?:\*|_)(?:[^\w]|$)|~~[\s\S]+?~~|`[^`\n]+`|\[[^\]\n]+\]\([^)]+\)/m.test(String(value || ''));
+}
+
+function markdownSnapshotHtml(element, markdownSource = '') {
+    if (!element || !looksLikeMarkdownSource(markdownSource)) return '';
+    if (!element.querySelector?.([
+        'strong',
+        'b',
+        'em',
+        'i',
+        'del',
+        's',
+        'code',
+        'pre',
+        'blockquote',
+        'a[href]',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'h5',
+        'h6',
+        'ul',
+        'ol',
+        'li',
+        'hr',
+    ].join(','))) return '';
+    return element.outerHTML || element.innerHTML || '';
+}
+
 function stripConfiguredTags(value) {
     const pattern = configuredTagPattern();
     return pattern ? String(value || '').replace(pattern, '') : String(value || '');
@@ -174,13 +205,14 @@ function extractTagCandidates(messageElement, rawMessage, messageId) {
             const cleanRendered = cloneWithoutFavoriteButtons(rendered);
             const renderedText = cleanRendered?.innerText || cleanRendered?.textContent || '';
             const innerIsMarkup = looksLikeRunnableMarkup(inner);
+            const renderedMarkdown = innerIsMarkup ? '' : markdownSnapshotHtml(cleanRendered, inner);
             candidates.push({
                 id: makeCandidateId('tag', messageId, index, tag),
-                type: innerIsMarkup ? 'tag-html' : 'tag-regex',
+                type: innerIsMarkup ? 'tag-html' : (renderedMarkdown ? 'tag-markdown' : 'tag-regex'),
                 sourceTag: tag,
                 rawSource,
-                renderedHtml: innerIsMarkup ? (cleanRendered?.outerHTML || inner) : '',
-                plainText: innerIsMarkup ? (renderedText || stripTags(inner)) : stripConfiguredTags(inner),
+                renderedHtml: innerIsMarkup ? (cleanRendered?.outerHTML || inner) : renderedMarkdown,
+                plainText: innerIsMarkup || renderedMarkdown ? (renderedText || stripConfiguredTags(inner)) : stripConfiguredTags(inner),
                 anchor: rendered || messageElement,
                 messageId,
             });
@@ -189,7 +221,7 @@ function extractTagCandidates(messageElement, rawMessage, messageId) {
         messageElement.querySelectorAll(tag).forEach((element, index) => {
             const rawSource = element.outerHTML || '';
             const candidateId = makeCandidateId('tagdom', messageId, index, tag);
-            if (candidates.some(item => item.rawSource === rawSource || item.id === candidateId)) return;
+            if (candidates.some(item => item.rawSource === rawSource || item.id === candidateId || (item.sourceTag === tag && item.anchor === element))) return;
             const cleanElement = cloneWithoutFavoriteButtons(element);
             const elementHtml = element.innerHTML || '';
             const elementIsMarkup = looksLikeRunnableMarkup(elementHtml);
@@ -336,13 +368,14 @@ function openDetailsForFrame(html) {
     return template.innerHTML;
 }
 
-function sanitizeInlinePreview(html) {
+function sanitizeInlinePreview(html, options = {}) {
     const template = document.createElement('template');
     template.innerHTML = unwrapDetailsForPreview(html);
     template.content.querySelectorAll(`.${EXT_ID}-save, .${EXT_ID}-message-save, script, iframe, object, embed`).forEach(node => node.remove());
     template.content.querySelectorAll('*').forEach(node => {
         [...node.attributes].forEach(attribute => {
             if (/^on/i.test(attribute.name)) node.removeAttribute(attribute.name);
+            if (options.stripInlineStyles && attribute.name === 'style') node.removeAttribute(attribute.name);
         });
     });
     return template.innerHTML;
@@ -350,6 +383,71 @@ function sanitizeInlinePreview(html) {
 
 function plainPreviewHtml(value) {
     return `<pre class="${EXT_ID}-plain-preview">${htmlEscape(value)}</pre>`;
+}
+
+function markdownInlineHtml(value) {
+    return htmlEscape(value)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+        .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>')
+        .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '<em>$1</em>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+        .replace(/`([^`\n]+)`/g, '<code>$1</code>');
+}
+
+function stripMarkdownPreviewComments(value) {
+    return String(value || '').replace(/<!--[^]*?-->/g, '');
+}
+
+function markdownSourcePreviewHtml(value) {
+    const lines = stripMarkdownPreviewComments(stripConfiguredTags(value)).replace(/\r\n?/g, '\n').split('\n');
+    const blocks = [];
+    let paragraph = [];
+
+    const flushParagraph = () => {
+        if (!paragraph.length) return;
+        blocks.push(`<p>${paragraph.map(markdownInlineHtml).join('<br>')}</p>`);
+        paragraph = [];
+    };
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index] || '';
+        const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+        if (heading) {
+            flushParagraph();
+            const level = Math.min(6, heading[1].length);
+            blocks.push(`<h${level}>${markdownInlineHtml(heading[2].trim())}</h${level}>`);
+            continue;
+        }
+
+        if (/^\s{0,3}>\s?/.test(line)) {
+            flushParagraph();
+            const quoteLines = [];
+            while (index < lines.length && /^\s{0,3}>\s?/.test(lines[index] || '')) {
+                quoteLines.push((lines[index] || '').replace(/^\s{0,3}>\s?/, ''));
+                index += 1;
+            }
+            index -= 1;
+            const quoteHtml = quoteLines
+                .join('\n')
+                .split(/\n{2,}/)
+                .map(part => part.split('\n').map(markdownInlineHtml).join('<br>'))
+                .map(part => `<p>${part}</p>`)
+                .join('');
+            blocks.push(`<blockquote>${quoteHtml}</blockquote>`);
+            continue;
+        }
+
+        if (!line.trim()) {
+            flushParagraph();
+            continue;
+        }
+
+        paragraph.push(line);
+    }
+
+    flushParagraph();
+    return blocks.join('');
 }
 
 function sourceToPlainText(value) {
@@ -367,6 +465,15 @@ function editableSource(item) {
 function buildPreviewHtml(item) {
     const rawBody = stripOuterSourceTag(item.rawSource || '', item.sourceTag);
     const textOnlyBody = stripConfiguredTags(rawBody);
+    if (item.sourceType === 'tag-markdown' && item.renderedHtml) {
+        const sourcePreview = markdownSourcePreviewHtml(rawBody);
+        const fallbackPreview = sanitizeInlinePreview(stripOuterSourceTag(item.renderedHtml, item.sourceTag), { stripInlineStyles: true });
+        return `<div class="${EXT_ID}-markdown-preview">${sourcePreview || fallbackPreview}</div>`;
+    }
+    if (item.sourceType === 'tag-regex' && looksLikeMarkdownSource(rawBody)) {
+        const sourcePreview = markdownSourcePreviewHtml(rawBody);
+        if (sourcePreview) return `<div class="${EXT_ID}-markdown-preview">${sourcePreview}</div>`;
+    }
     if (item.sourceType === 'tag-regex' || item.sourceType === 'details-text') {
         return plainPreviewHtml(textOnlyBody || item.plainText || '');
     }
@@ -406,7 +513,9 @@ function handlePreviewResize(event) {
     const frame = [...document.querySelectorAll(`.${EXT_ID}-html-frame[data-resize-token]`)]
         .find(candidate => candidate.dataset.resizeToken === data.token && candidate.contentWindow === event.source);
     if (!frame) return;
-    const minimum = window.matchMedia('(max-width: 760px)').matches ? 260 : 300;
+    const minimum = window.matchMedia('(max-width: 760px)').matches
+        ? Math.min(520, Math.max(320, Math.round(window.innerHeight * 0.58)))
+        : 300;
     const maximum = 30000;
     const measured = Math.ceil(Number(data.height) || minimum);
     const nextHeight = Math.max(minimum, Math.min(maximum, measured));
@@ -997,7 +1106,7 @@ function buildPanel() {
             <div class="${EXT_ID}-brand">
                 <div class="${EXT_ID}-mark"><img class="${EXT_ID}-app-icon" src="${ICON_SRC}" alt=""></div>
                 <div>
-                    <div class="${EXT_ID}-title"><span>小剧场收藏夹 @KKM</span></div>
+                    <div class="${EXT_ID}-title"><span>小剧场收藏夹 <b class="${EXT_ID}-owner">@KKM</b></span></div>
                     <div class="${EXT_ID}-sub">收藏、阅读和管理聊天里的小剧场。</div>
                 </div>
             </div>
@@ -1007,6 +1116,7 @@ function buildPanel() {
             <div id="${EXT_ID}-status" class="${EXT_ID}-status">未连接</div>
             <div class="${EXT_ID}-actions">
                 <button id="${EXT_ID}-refresh" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-rotate"></i><span>刷新</span></button>
+                <button id="${EXT_ID}-tag-manager-toggle" class="menu_button ${EXT_ID}-button" type="button" title="查看所有标签并批量删除"><i class="fa-solid fa-tags"></i><span>标签</span></button>
                 <button id="${EXT_ID}-settings-toggle" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-sliders"></i><span>设置</span></button>
             </div>
         </div>
@@ -1020,6 +1130,16 @@ function buildPanel() {
                 <button id="${EXT_ID}-save-settings" class="menu_button ${EXT_ID}-button ${EXT_ID}-primary" type="button"><i class="fa-solid fa-check"></i><span>保存设置</span></button>
             </div>
             <div id="${EXT_ID}-health" class="${EXT_ID}-health"></div>
+            <div id="${EXT_ID}-tag-manager" class="${EXT_ID}-tag-manager">
+                <div class="${EXT_ID}-tag-manager-head">
+                    <div>
+                        <strong>标签管理</strong>
+                        <small>删除标签只会从所有收藏中移除该标签，不会删除收藏。</small>
+                    </div>
+                    <button id="${EXT_ID}-tag-manager-refresh" class="menu_button ${EXT_ID}-button" type="button" title="重新统计全部收藏的标签"><i class="fa-solid fa-rotate"></i><span>刷新标签</span></button>
+                </div>
+                <div id="${EXT_ID}-tag-manager-list" class="${EXT_ID}-tag-manager-list"><small>正在读取标签...</small></div>
+            </div>
             <div class="${EXT_ID}-storage">
                 <div>
                     <strong>本地存储</strong>
@@ -1058,7 +1178,10 @@ function buildPanel() {
         <div class="${EXT_ID}-body">
             <div class="${EXT_ID}-rail-head">
                 <span>收藏列表</span>
-                <small>点开一条后，上一条会自动收起</small>
+                <div class="${EXT_ID}-rail-tools">
+                    <small>点开一条后，上一条会自动收起</small>
+                    <button id="${EXT_ID}-filters-toggle" class="menu_button ${EXT_ID}-filter-toggle" type="button" aria-expanded="false" title="展开角色、聊天、来源和标签筛选"><i class="fa-solid fa-filter"></i><span>筛选</span><em id="${EXT_ID}-filter-count" hidden></em></button>
+                </div>
             </div>
             <div class="${EXT_ID}-filters">
                 <input id="${EXT_ID}-search" type="search" placeholder="搜索标题、角色、聊天或标签">
@@ -1076,16 +1199,29 @@ function buildPanel() {
         </div>
     `;
     document.body.append(panel);
+    panel.addEventListener('scroll', () => {
+        if (panel.scrollTop || panel.scrollLeft) resetPanelShellScroll();
+    }, { passive: true });
     document.querySelector(`#${EXT_ID}-close`)?.addEventListener('click', closePanel);
     document.querySelector(`#${EXT_ID}-refresh`)?.addEventListener('click', () => loadTheaters().catch(showError));
+    document.querySelector(`#${EXT_ID}-tag-manager-toggle`)?.addEventListener('click', () => openTagManager().catch(showError));
     document.querySelector(`#${EXT_ID}-settings-toggle`)?.addEventListener('click', () => {
         const settings = document.querySelector(`#${EXT_ID}-settings`);
         const panel = document.querySelector(`#${EXT_ID}-panel`);
         if (settings) {
             settings.hidden = !settings.hidden;
             panel?.classList.toggle('settings-open', !settings.hidden);
-            if (!settings.hidden) loadStorageStatus().catch(showError);
+            if (!settings.hidden) {
+                loadStorageStatus().catch(showError);
+                loadTagManager().catch(showError);
+            }
         }
+    });
+    document.querySelector(`#${EXT_ID}-tag-manager-refresh`)?.addEventListener('click', () => loadTagManager().catch(showError));
+    document.querySelector(`#${EXT_ID}-filters-toggle`)?.addEventListener('click', event => {
+        const body = document.querySelector(`.${EXT_ID}-body`);
+        const expanded = body?.classList.toggle(`${EXT_ID}-filters-open`) || false;
+        event.currentTarget.setAttribute('aria-expanded', String(expanded));
     });
     document.querySelector(`#${EXT_ID}-save-settings`)?.addEventListener('click', savePanelSettings);
     document.querySelector(`#${EXT_ID}-compact`)?.addEventListener('click', () => compactStorage().catch(showError));
@@ -1098,6 +1234,7 @@ function buildPanel() {
         document.querySelector(`#${EXT_ID}-${name}`)?.addEventListener(name === 'search' ? 'input' : 'change', event => {
             state.filters[name] = event.target.value;
             state.page = 1;
+            updateFilterToggle();
             window.clearTimeout(state.filterTimer);
             state.filterTimer = window.setTimeout(() => loadTheaters().catch(showError), name === 'search' ? 250 : 0);
         });
@@ -1166,6 +1303,58 @@ async function loadStorageStatus() {
     renderHealthStatus();
 }
 
+function renderTagManager(tags = []) {
+    const target = document.querySelector(`#${EXT_ID}-tag-manager-list`);
+    if (!target) return;
+    if (!tags.length) {
+        target.innerHTML = '<small>还没有收藏标签。</small>';
+        return;
+    }
+    target.innerHTML = tags.map(item => `
+        <div class="${EXT_ID}-tag-manager-item">
+            <span><i class="fa-solid fa-tag"></i>${htmlEscape(item.name)}<small>${Number(item.count) || 0} 条收藏</small></span>
+            <button class="menu_button ${EXT_ID}-button ${EXT_ID}-danger ${EXT_ID}-tag-manager-delete" type="button" data-tag="${attrEscape(item.name)}" data-count="${Number(item.count) || 0}" title="从全部收藏中删除标签 ${attrEscape(item.name)}"><i class="fa-solid fa-trash-can"></i><span>全部移除</span></button>
+        </div>`).join('');
+    target.querySelectorAll(`.${EXT_ID}-tag-manager-delete[data-tag]`).forEach(button => {
+        button.addEventListener('click', () => deleteManagedTag(button.dataset.tag || '', Number(button.dataset.count) || 0).catch(showError));
+    });
+}
+
+async function loadTagManager() {
+    const data = await api('/tags');
+    renderTagManager(data.tags || []);
+}
+
+async function openTagManager() {
+    const settings = document.querySelector(`#${EXT_ID}-settings`);
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    if (!settings || !panel) return;
+    settings.hidden = false;
+    panel.classList.add('settings-open');
+    await Promise.all([loadStorageStatus(), loadTagManager()]);
+    const manager = document.querySelector(`#${EXT_ID}-tag-manager`);
+    if (manager) {
+        const settingsRect = settings.getBoundingClientRect();
+        const managerRect = manager.getBoundingClientRect();
+        settings.scrollTop = Math.max(0, settings.scrollTop + managerRect.top - settingsRect.top);
+    }
+    resetPanelShellScroll();
+}
+
+async function deleteManagedTag(tag, count) {
+    if (!tag) return;
+    const confirmed = window.confirm(`确定从 ${count} 条收藏中移除标签“${tag}”吗？\n\n收藏本身不会被删除。`);
+    if (!confirmed) return;
+    const data = await api(`/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' });
+    if (state.filters.tag === tag) {
+        state.filters.tag = '';
+        state.page = 1;
+    }
+    renderTagManager(data.tags || []);
+    await loadTheaters();
+    notify(`已从 ${data.updated || 0} 条收藏中移除标签“${tag}”。`, 'success');
+}
+
 async function compactStorage() {
     const data = await api('/storage/compact', { method: 'POST' });
     renderStorageStatus(data);
@@ -1210,16 +1399,65 @@ function savePanelSettings() {
     notify('设置已保存。', 'success');
 }
 
+function scrollListToTop() {
+    window.setTimeout(() => {
+        resetPanelShellScroll();
+        const list = document.querySelector(`#${EXT_ID}-list`);
+        if (list) list.scrollTop = 0;
+    }, 0);
+}
+
+function scrollSelectedIntoView() {
+    window.setTimeout(() => {
+        resetPanelShellScroll();
+        const list = document.querySelector(`#${EXT_ID}-list`);
+        const active = document.querySelector(`.${EXT_ID}-entry.active`);
+        if (!list || !active || !list.contains(active)) return;
+
+        // Do not use scrollIntoView here. It may also scroll the fixed panel
+        // (overflow:hidden is still programmatically scrollable), which hides
+        // the header after a long entry is collapsed or deleted.
+        const listRect = list.getBoundingClientRect();
+        const activeRect = active.getBoundingClientRect();
+        list.scrollTop = Math.max(0, list.scrollTop + activeRect.top - listRect.top);
+    }, 0);
+}
+
+function resetPanelShellScroll() {
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    if (!panel) return;
+    panel.scrollTop = 0;
+    panel.scrollLeft = 0;
+}
+
+function keepPanelInViewport() {
+    window.setTimeout(() => {
+        const panel = document.querySelector(`#${EXT_ID}-panel`);
+        if (!panel || !state.open) return;
+        resetPanelShellScroll();
+        const rect = panel.getBoundingClientRect();
+        const top = Math.max(8, rect.top);
+        if (rect.top < 8) panel.style.top = `${top}px`;
+    }, 0);
+}
+
 function openPanel() {
     buildPanel();
     state.open = true;
     document.querySelector(`#${EXT_ID}-panel`)?.classList.add('open');
-    loadTheaters().catch(showError);
+    state.selectedId = '';
+    keepPanelInViewport();
+    loadTheaters().then(() => {
+        scrollListToTop();
+        keepPanelInViewport();
+    }).catch(showError);
 }
 
 function closePanel() {
     state.open = false;
-    document.querySelector(`#${EXT_ID}-panel`)?.classList.remove('open');
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    panel?.classList.remove('open');
+    if (panel) panel.style.top = '';
 }
 
 function handleGlobalKeydown(event) {
@@ -1238,6 +1476,7 @@ function showError(error) {
 }
 
 async function loadTheaters() {
+    resetPanelShellScroll();
     const offset = (state.page - 1) * state.pageSize;
     const query = new URLSearchParams({ limit: state.pageSize, offset });
     Object.entries(state.filters).forEach(([key, value]) => { if (value) query.set(key, value); });
@@ -1257,6 +1496,8 @@ async function loadTheaters() {
     renderList();
     renderFilterOptions();
     renderHealthStatus();
+    resetPanelShellScroll();
+    keepPanelInViewport();
 }
 
 function renderFilterOptions() {
@@ -1268,11 +1509,24 @@ function renderFilterOptions() {
         select.innerHTML = `<option value="">${htmlEscape(first)}</option>${(state.filterOptions[key] || []).map(value => `<option value="${attrEscape(value)}">${htmlEscape(value)}</option>`).join('')}`;
         select.value = state.filters[id] || '';
     });
+    updateFilterToggle();
+}
+
+function updateFilterToggle() {
+    const count = ['character', 'chat', 'source', 'tag'].filter(name => Boolean(state.filters[name])).length;
+    const badge = document.querySelector(`#${EXT_ID}-filter-count`);
+    const button = document.querySelector(`#${EXT_ID}-filters-toggle`);
+    if (badge) {
+        badge.hidden = count === 0;
+        badge.textContent = String(count);
+    }
+    if (button) button.classList.toggle('active', count > 0);
 }
 
 function sourceLabel(item) {
     if (item.sourceType === 'loreframe-html') return '拟界文库';
     if (item.sourceType === 'details') return 'details';
+    if (item.sourceType === 'tag-markdown') return 'Markdown';
     if (item.sourceTag) return item.sourceTag;
     if (/html/i.test(item.sourceType || '') || /<html|<!doctype/i.test(item.rawSource || '')) return 'HTML';
     return item.sourceType || '其他';
@@ -1348,6 +1602,7 @@ function renderExpandedTheater(item, sourceLine) {
     const absoluteIndex = (state.page - 1) * state.pageSize + selectedIndex + 1;
     const previewHtml = buildPreviewHtml(item);
     const editing = Boolean(item.editingContent);
+    const compactItemTools = window.matchMedia?.('(max-width: 760px)').matches;
     const editorHtml = editing ? `
         <div class="${EXT_ID}-content-editor">
             <label for="${EXT_ID}-content-input">编辑原文</label>
@@ -1361,25 +1616,30 @@ function renderExpandedTheater(item, sourceLine) {
     ` : '';
     return `
         <div class="${EXT_ID}-expanded">
-            <div class="${EXT_ID}-reader-actions">
-                <button id="${EXT_ID}-read-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一条" ${selectedIndex <= 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                <button id="${EXT_ID}-read-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一条" ${selectedIndex >= state.items.length - 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                <button id="${EXT_ID}-move-up" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex <= 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i><span>上移</span></button>
-                <button id="${EXT_ID}-move-down" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex >= state.total ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i><span>下移</span></button>
-                <button id="${EXT_ID}-delete" class="menu_button ${EXT_ID}-button ${EXT_ID}-danger" type="button"><i class="fa-solid fa-trash-can"></i><span>删除</span></button>
-                <button id="${EXT_ID}-rename" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-pen"></i><span>重命名</span></button>
-                <button id="${EXT_ID}-edit" class="menu_button ${EXT_ID}-button" type="button" ${editing ? 'disabled' : ''}><i class="fa-solid fa-file-pen"></i><span>编辑正文</span></button>
-            </div>
-            <div class="${EXT_ID}-source-line">${htmlEscape(sourceLine || `第 ${absoluteIndex} 条`)}</div>
-            <div class="${EXT_ID}-tag-editor">
-                <div class="${EXT_ID}-tag-row">
-                    ${(item.tags || []).map(tag => `<span>${htmlEscape(tag)}<button class="${EXT_ID}-tag-remove" type="button" data-tag="${attrEscape(tag)}" title="删除标签" aria-label="删除标签 ${attrEscape(tag)}"><i class="fa-solid fa-xmark"></i></button></span>`).join('') || '<small>还没有标签</small>'}
+            <details class="${EXT_ID}-item-tools" ${compactItemTools ? '' : 'open'}>
+                <summary><span><i class="fa-solid fa-screwdriver-wrench"></i>管理这条收藏</span><i class="fa-solid fa-chevron-down"></i></summary>
+                <div class="${EXT_ID}-item-tools-content">
+                    <div class="${EXT_ID}-reader-actions">
+                        <button id="${EXT_ID}-read-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一条" ${selectedIndex <= 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                        <button id="${EXT_ID}-read-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一条" ${selectedIndex >= state.items.length - 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                        <button id="${EXT_ID}-move-up" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex <= 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i><span>上移</span></button>
+                        <button id="${EXT_ID}-move-down" class="menu_button ${EXT_ID}-button" type="button" ${absoluteIndex >= state.total ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i><span>下移</span></button>
+                        <button id="${EXT_ID}-delete" class="menu_button ${EXT_ID}-button ${EXT_ID}-danger" type="button"><i class="fa-solid fa-trash-can"></i><span>删除</span></button>
+                        <button id="${EXT_ID}-rename" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-pen"></i><span>重命名</span></button>
+                        <button id="${EXT_ID}-edit" class="menu_button ${EXT_ID}-button" type="button" ${editing ? 'disabled' : ''}><i class="fa-solid fa-file-pen"></i><span>编辑正文</span></button>
+                    </div>
+                    <div class="${EXT_ID}-source-line">${htmlEscape(sourceLine || `第 ${absoluteIndex} 条`)}</div>
+                    <div class="${EXT_ID}-tag-editor">
+                        <div class="${EXT_ID}-tag-row">
+                            ${(item.tags || []).map(tag => `<span>${htmlEscape(tag)}<button class="${EXT_ID}-tag-remove" type="button" data-tag="${attrEscape(tag)}" title="删除标签" aria-label="删除标签 ${attrEscape(tag)}"><i class="fa-solid fa-xmark"></i></button></span>`).join('') || '<small>还没有标签</small>'}
+                        </div>
+                        <div class="${EXT_ID}-tag-add-row">
+                            <input id="${EXT_ID}-tag-input" type="text" maxlength="60" placeholder="输入新标签">
+                            <button id="${EXT_ID}-tag-add" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-plus"></i><span>添加</span></button>
+                        </div>
+                    </div>
                 </div>
-                <div class="${EXT_ID}-tag-add-row">
-                    <input id="${EXT_ID}-tag-input" type="text" maxlength="60" placeholder="输入新标签">
-                    <button id="${EXT_ID}-tag-add" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-plus"></i><span>添加</span></button>
-                </div>
-            </div>
+            </details>
             ${editorHtml}
             <div class="${EXT_ID}-preview-label">渲染预览</div>
             <div class="${EXT_ID}-preview">${previewHtml}</div>
@@ -1515,6 +1775,7 @@ async function selectTheater(id) {
         }
     }
     renderList();
+    scrollSelectedIntoView();
     if (item?.detailLoaded) return;
 
     state.detailLoadingId = id;
@@ -1524,7 +1785,7 @@ async function selectTheater(id) {
     if (state.detailLoadingId === id) state.detailLoadingId = '';
     renderList();
     if (state.selectedId === id) {
-        window.setTimeout(() => document.querySelector(`.${EXT_ID}-entry.active`)?.scrollIntoView({ block: 'nearest' }), 0);
+        scrollSelectedIntoView();
     }
 }
 
@@ -1549,10 +1810,12 @@ async function moveSelected(direction) {
 
 async function deleteSelected() {
     if (!state.selectedId) return;
+    resetPanelShellScroll();
     await api(`/theaters/${encodeURIComponent(state.selectedId)}`, { method: 'DELETE' });
     state.selectedId = '';
     await loadSavedSignatures({ force: true }).catch(() => {});
     await loadTheaters();
+    resetPanelShellScroll();
 }
 
 function changePage(delta) {
