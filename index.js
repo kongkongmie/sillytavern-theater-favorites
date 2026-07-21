@@ -12,6 +12,8 @@ const EXT_ID = 'theater-favorites';
 const API_BASE = '/api/plugins/theater-favorites';
 const SETTINGS_KEY = 'theater-favorites-settings-v1';
 const ICON_SRC = '/scripts/extensions/third-party/theater-favorites/assets/theater-play.png';
+const CHATU8_IMAGE_REQUEST_EVENT = 'generate-image-request';
+const CHATU8_IMAGE_RESPONSE_EVENT = 'generate-image-response';
 
 const DEFAULT_SETTINGS = {
     tagNames: ['snow'],
@@ -146,7 +148,7 @@ function configuredTagPattern() {
 }
 
 function looksLikeRunnableMarkup(value) {
-    return /<(?:!doctype|html|head|body|style|script|link|meta|div|section|article|details|summary|table|ul|ol|li|p|br|span|img|button|input|select|textarea|canvas|svg)\\b/i.test(String(value || ''));
+    return /<(?:!doctype|html|head|body|style|script|link|meta|div|section|article|details|summary|table|ul|ol|li|p|br|span|img|button|input|select|textarea|canvas|svg)\b/i.test(String(value || ''));
 }
 
 function looksLikeMarkdownSource(value) {
@@ -368,9 +370,92 @@ function openDetailsForFrame(html) {
     return template.innerHTML;
 }
 
+function isPersistentImageReference(value) {
+    const source = String(value || '').trim();
+    if (!source || /^(?:data|blob|javascript|file):/i.test(source)) return false;
+    try {
+        const url = new URL(source, window.location.href);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function referencedImagesFromSnapshot(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '');
+    return [...template.content.querySelectorAll('img[src]')]
+        .map(image => ({
+            src: image.getAttribute('src') || '',
+            alt: image.getAttribute('alt') || '',
+        }))
+        .filter(image => isPersistentImageReference(image.src) && !image.src.includes('/theater-favorites/assets/theater-play.png'))
+        .slice(0, 12);
+}
+
+function isChatu8ImageGenerationAvailable() {
+    return typeof window.loadSilterTavernChatu8Settings === 'function'
+        && typeof eventSource?.on === 'function'
+        && typeof eventSource?.emit === 'function';
+}
+
+function normalizedImagePrompt(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function liveChatu8ImageForPrompt(prompt) {
+    const expected = normalizedImagePrompt(prompt);
+    if (!expected) return null;
+    const roots = [document];
+    document.querySelectorAll('iframe').forEach(frame => {
+        try {
+            if (frame.contentDocument) roots.push(frame.contentDocument);
+        } catch {
+            // Cross-origin frames are not eligible for same-page image reuse.
+        }
+    });
+    for (const root of roots) {
+        const buttons = root.querySelectorAll('.st-chatu8-image-button[data-link], .image-tag-button[data-link]');
+        for (const button of buttons) {
+            if (normalizedImagePrompt(button.dataset.link) !== expected) continue;
+            const requestId = button.dataset.requestId || '';
+            const requestSpan = requestId
+                ? [...root.querySelectorAll('span[data-request-id]')].find(span => span.dataset.requestId === requestId)
+                : null;
+            const image = requestSpan?.querySelector('img[src]')
+                || button.nextElementSibling?.querySelector?.('img[src]')
+                || button.closest('.st-chatu8-collapse-wrapper, p, div')?.querySelector?.('.st-chatu8-image-container img[src], img[alt="Generated Image"][src]');
+            const src = image?.getAttribute('src') || '';
+            if (src) return { src, alt: image.getAttribute('alt') || '', transient: true };
+        }
+    }
+    return null;
+}
+
+function replaceGenerationPromptBlocks(html, imageReferences = []) {
+    let imageIndex = 0;
+    return String(html || '')
+        .replace(/<image\b[^>]*>([\s\S]*?)<imgthink\b[^>]*>[\s\S]*?<\/imgthink>([\s\S]*?)<\/image>/gi, (_match, labelSource, promptSource) => {
+            const savedReference = imageReferences[imageIndex++];
+            const prompt = String(promptSource || '').trim();
+            const reference = savedReference || liveChatu8ImageForPrompt(prompt);
+            const label = stripTags(labelSource).trim() || reference?.alt || '';
+            if (reference) {
+                return `<figure class="${EXT_ID}-referenced-image${reference.transient ? ` ${EXT_ID}-live-image` : ''}">${label ? `<figcaption>${htmlEscape(label)}</figcaption>` : ''}<img src="${attrEscape(reference.src)}" alt="${attrEscape(reference.alt || label)}" loading="lazy">${reference.transient ? `<small class="${EXT_ID}-image-note">引用当前聊天中的智绘姬图片，未保存原图</small>` : ''}</figure>`;
+            }
+            if (!prompt || !isChatu8ImageGenerationAvailable()) return '';
+            return `<figure class="${EXT_ID}-referenced-image ${EXT_ID}-chatu8-generation">${label ? `<figcaption>${htmlEscape(label)}</figcaption>` : ''}<button class="${EXT_ID}-chatu8-generate" type="button" data-image-prompt="${attrEscape(prompt)}" title="调用智绘姬当前生图配置，可能消耗额度"><i class="fa-solid fa-wand-magic-sparkles"></i><span>用智绘姬生成（可能消耗额度）</span></button><span class="${EXT_ID}-chatu8-status" aria-live="polite"></span></figure>`;
+        })
+        .replace(/<imgthink\b[^>]*>[\s\S]*?<\/imgthink>/gi, '');
+}
+
+function stripGenerationPromptBlocks(html) {
+    return replaceGenerationPromptBlocks(html);
+}
+
 function sanitizeInlinePreview(html, options = {}) {
     const template = document.createElement('template');
-    template.innerHTML = unwrapDetailsForPreview(html);
+    template.innerHTML = openDetailsForFrame(stripGenerationPromptBlocks(html));
     template.content.querySelectorAll(`.${EXT_ID}-save, .${EXT_ID}-message-save, script, iframe, object, embed`).forEach(node => node.remove());
     template.content.querySelectorAll('*').forEach(node => {
         [...node.attributes].forEach(attribute => {
@@ -379,6 +464,31 @@ function sanitizeInlinePreview(html, options = {}) {
         });
     });
     return template.innerHTML;
+}
+
+function structuredDetailsPreviewHtml(html) {
+    const match = String(html || '').match(/<details\b[^>]*>([\s\S]*)<\/details>/i);
+    if (!match) return '';
+    const inner = match[1];
+    const summaryMatch = inner.match(/<summary\b[^>]*>([\s\S]*?)<\/summary>/i);
+    const summary = stripTags(summaryMatch?.[1] || '').trim();
+    const bodySource = summaryMatch ? inner.replace(summaryMatch[0], '') : inner;
+    const bodyTemplate = document.createElement('template');
+    bodyTemplate.innerHTML = sanitizeInlinePreview(bodySource);
+    const textWalker = document.createTreeWalker(bodyTemplate.content, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (textWalker.nextNode()) textNodes.push(textWalker.currentNode);
+    textNodes.forEach(node => {
+        node.textContent = node.textContent.replace(/(?:[ \t]*\r?\n){2,}[ \t]*/g, '\n');
+    });
+    bodyTemplate.content.querySelectorAll(`figure.${EXT_ID}-referenced-image`).forEach(figure => {
+        const previous = figure.previousSibling;
+        const next = figure.nextSibling;
+        if (previous?.nodeType === Node.TEXT_NODE) previous.textContent = previous.textContent.trimEnd();
+        if (next?.nodeType === Node.TEXT_NODE) next.textContent = next.textContent.trimStart();
+    });
+    const body = bodyTemplate.innerHTML.trim();
+    return `<section class="${EXT_ID}-structured-details"><div class="${EXT_ID}-structured-summary"><span aria-hidden="true">▼</span><span>${htmlEscape(summary)}</span></div><div class="${EXT_ID}-structured-details-body">${body}</div></section>`;
 }
 
 function plainPreviewHtml(value) {
@@ -474,11 +584,21 @@ function buildPreviewHtml(item) {
         const sourcePreview = markdownSourcePreviewHtml(rawBody);
         if (sourcePreview) return `<div class="${EXT_ID}-markdown-preview">${sourcePreview}</div>`;
     }
-    if (item.sourceType === 'tag-regex' || item.sourceType === 'details-text') {
+    if ((item.sourceType === 'tag-regex' && !looksLikeRunnableMarkup(rawBody)) || item.sourceType === 'details-text') {
         return plainPreviewHtml(textOnlyBody || item.plainText || '');
     }
-    const inlineBody = unwrapDetailsForPreview(rawBody);
+    const imageReferences = referencedImagesFromSnapshot(item.renderedHtml || '');
+    const inlineBody = replaceGenerationPromptBlocks(rawBody, imageReferences);
     const token = `${item.id}-${Date.now()}`;
+
+    // Nested text theaters must stay in the host document. Treating their saved
+    // renderer snapshot as a runnable page can produce a blank iframe in Pake and
+    // also prevents us from reusing images that 智绘姬 already restored in chat.
+    if (inlineBody && /<details\b/i.test(inlineBody)) {
+        const structured = structuredDetailsPreviewHtml(inlineBody);
+        if (structured) return `<div class="${EXT_ID}-structured-text-preview">${structured}</div>`;
+    }
+
     const runnable = bestRunnableHtml(item, rawBody);
     if (runnable) {
         const documentHtml = addPreviewResizeBridge(openDetailsForFrame(runnable), token);
@@ -521,6 +641,62 @@ function handlePreviewResize(event) {
     const nextHeight = Math.max(minimum, Math.min(maximum, measured));
     const currentHeight = Math.round(frame.getBoundingClientRect().height);
     if (Math.abs(currentHeight - nextHeight) > 1) frame.style.height = `${nextHeight}px`;
+}
+
+function generatePreviewImageWithChatu8(button) {
+    const prompt = String(button?.dataset.imagePrompt || '').trim();
+    const figure = button?.closest(`.${EXT_ID}-chatu8-generation`);
+    const status = figure?.querySelector(`.${EXT_ID}-chatu8-status`);
+    if (!prompt || !figure || !status) return;
+    if (!isChatu8ImageGenerationAvailable()) {
+        status.textContent = '智绘姬未加载，无法生成。';
+        return;
+    }
+
+    const requestId = `${EXT_ID}-chatu8-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>智绘姬生成中…</span>';
+    status.textContent = '图片只显示在本次预览，不会写入收藏。';
+
+    let finished = false;
+    const cleanup = () => {
+        eventSource.removeListener?.(CHATU8_IMAGE_RESPONSE_EVENT, handleResponse);
+    };
+    const finishWithError = message => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        window.clearTimeout(timeout);
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+        status.textContent = message;
+    };
+    const handleResponse = response => {
+        if (response?.id !== requestId || finished) return;
+        const imageSource = String(response.imageData || response.imageUrl || '').trim();
+        if (!response.success || !imageSource) {
+            finishWithError(`生成失败：${response.error || '智绘姬没有返回图片'}`);
+            return;
+        }
+        finished = true;
+        cleanup();
+        window.clearTimeout(timeout);
+        let image = figure.querySelector('img');
+        if (!image) {
+            image = document.createElement('img');
+            image.alt = figure.querySelector('figcaption')?.textContent || '智绘姬生成图片';
+            figure.insertBefore(image, button);
+        }
+        image.src = imageSource;
+        button.disabled = false;
+        button.innerHTML = '<i class="fa-solid fa-rotate"></i><span>重新生成（可能消耗额度）</span>';
+        status.textContent = '已生成；关闭或刷新预览后不会保留图片。';
+    };
+    const timeout = window.setTimeout(() => finishWithError('生成超时，请检查智绘姬任务或稍后重试。'), 5 * 60 * 1000);
+    eventSource.on(CHATU8_IMAGE_RESPONSE_EVENT, handleResponse);
+    Promise.resolve(eventSource.emit(CHATU8_IMAGE_REQUEST_EVENT, { id: requestId, prompt }))
+        .catch(error => finishWithError(`无法调用智绘姬：${error.message}`));
 }
 
 function normalizeForMatch(text) {
@@ -669,6 +845,9 @@ function cloneWithoutFavoriteButtons(element) {
     if (!element) return null;
     const clone = element.cloneNode(true);
     clone.querySelectorAll?.(`.${EXT_ID}-save, .${EXT_ID}-message-save`).forEach(button => button.remove());
+    clone.querySelectorAll?.('img[src]').forEach(image => {
+        if (!isPersistentImageReference(image.getAttribute('src'))) image.remove();
+    });
     return clone;
 }
 
@@ -1539,6 +1718,16 @@ function renderList() {
     if (status) status.innerHTML = `<strong>${state.total}</strong><span>条收藏</span>`;
     if (page) page.textContent = `${state.page} / ${Math.max(1, Math.ceil(state.total / state.pageSize))}`;
     if (!list) return;
+    if (!list.dataset.theaterFavoritesDelegated) {
+        list.dataset.theaterFavoritesDelegated = '1';
+        list.addEventListener('click', event => {
+            const button = event.target.closest?.(`.${EXT_ID}-chatu8-generate[data-image-prompt]`);
+            if (!button || !list.contains(button)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            generatePreviewImageWithChatu8(button);
+        });
+    }
     if (!state.items.length) {
         list.innerHTML = '<div class="theater-favorites-empty">还没有收藏。聊天里的小剧场旁会出现收藏按钮。</div>';
         return;
@@ -1824,6 +2013,22 @@ function changePage(delta) {
     loadTheaters().catch(showError);
 }
 
+function reliableIconMarkup(className) {
+    return `<span class="${className} ${EXT_ID}-reliable-icon" aria-hidden="true"><img src="${ICON_SRC}" alt=""><i class="fa-solid fa-ticket" aria-hidden="true"></i></span>`;
+}
+
+function syncReliableIcons(root = document) {
+    root.querySelectorAll(`.${EXT_ID}-reliable-icon`).forEach(wrapper => {
+        const image = wrapper.querySelector('img');
+        if (!image || image.dataset.theaterFavoritesIconBound) return;
+        image.dataset.theaterFavoritesIconBound = '1';
+        const sync = () => wrapper.classList.toggle('icon-loaded', image.complete && image.naturalWidth > 0);
+        image.addEventListener('load', sync);
+        image.addEventListener('error', sync);
+        sync();
+    });
+}
+
 function addLauncher() {
     const sendFormTarget = document.querySelector('#rightSendForm') || document.querySelector('#leftSendForm');
     const quickReplyTarget = document.querySelector('#qr--bar > .qr--buttons') || document.querySelector('#qr--bar');
@@ -1841,7 +2046,8 @@ function addLauncher() {
         button.setAttribute('role', 'button');
         button.title = '小剧场收藏夹';
         button.setAttribute('aria-label', '打开小剧场收藏夹');
-        button.innerHTML = `<span class="${EXT_ID}-qr-icon" aria-hidden="true"></span>`;
+        button.innerHTML = reliableIconMarkup(`${EXT_ID}-qr-icon`);
+        syncReliableIcons(button);
         button.addEventListener('click', togglePanel);
         button.addEventListener('keydown', event => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -1851,6 +2057,8 @@ function addLauncher() {
         });
     }
     button.classList.add(`${EXT_ID}-qr`, 'qr--button', 'interactable');
+    if (!button.querySelector(`.${EXT_ID}-reliable-icon`)) button.innerHTML = reliableIconMarkup(`${EXT_ID}-qr-icon`);
+    syncReliableIcons(button);
     button.removeAttribute('type');
     button.setAttribute('role', 'button');
     button.tabIndex = 0;
@@ -1869,9 +2077,8 @@ function cleanupDuplicateLaunchers(activeButton) {
     ].filter(Boolean);
     roots.forEach(root => {
         const duplicateNodes = new Set();
-        root.querySelectorAll(`#${EXT_ID}-open, .${EXT_ID}-qr, .${EXT_ID}-qr-icon`).forEach(node => {
-            const launcher = node.closest(`#${EXT_ID}-open, .${EXT_ID}-qr, .qr--button, button, [role="button"], .interactable`);
-            if (launcher && launcher !== activeButton) duplicateNodes.add(launcher);
+        root.querySelectorAll(`#${EXT_ID}-open, .${EXT_ID}-qr`).forEach(launcher => {
+            if (launcher !== activeButton) duplicateNodes.add(launcher);
         });
         root.querySelectorAll(`img[src*="theater-favorites"][src*="theater-play.png"]`).forEach(node => {
             const launcher = node.closest(`#${EXT_ID}-open, .${EXT_ID}-qr, .qr--button, button, [role="button"], .interactable`);
@@ -1896,7 +2103,8 @@ function addMenuEntry() {
         menu.append(entry);
     }
     entry.title = '打开小剧场收藏夹';
-    entry.innerHTML = `<span class="${EXT_ID}-menu-icon" aria-hidden="true"></span><span>小剧场收藏夹</span>`;
+    entry.innerHTML = `${reliableIconMarkup(`${EXT_ID}-menu-icon`)}<span>小剧场收藏夹</span>`;
+    syncReliableIcons(entry);
     if (!entry.dataset.theaterFavoritesBound) {
         entry.dataset.theaterFavoritesBound = '1';
         entry.addEventListener('click', openPanel);

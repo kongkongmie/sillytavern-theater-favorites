@@ -756,7 +756,7 @@ module.exports = {
     info: {
         id: 'theater-favorites',
         name: '小剧场收藏夹',
-        version: '0.4.2',
+        version: '0.4.3',
         description: 'Collects theater snippets into per-user local files with a lightweight index.',
     },
 };
