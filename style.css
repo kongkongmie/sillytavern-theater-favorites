@@ -1858,7 +1858,7 @@
 
 /* Final theme firewall: this must remain after every responsive rule. */
 #theater-favorites-panel,
-#theater-favorites-panel :where(button, a, input, select, textarea, label, span, small, strong, em, p, h1, h2, h3, h4, h5, h6, summary, li, i) {
+#theater-favorites-panel :where(button, a, input, select, textarea, label, span, small, strong, em, p, h1, h2, h3, h4, h5, h6, summary, li, i):not(.theater-favorites-regex-preview *) {
     color: #eee9df !important;
     -webkit-text-fill-color: #eee9df !important;
 }

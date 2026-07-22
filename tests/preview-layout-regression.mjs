@@ -15,13 +15,17 @@ assert.match(source, /natural>viewport\+8\?viewport\/natural:1/, 'fixed-width HT
 assert.match(source, /naturalHeight\*scale/, 'scaled previews must report their visual height rather than unscaled height');
 assert.match(source, /type: innerIsMarkup \? 'tag-html' : \(renderedRegex \? 'tag-rendered'/, 'rendered regex snapshots must take priority over raw Markdown');
 assert.match(source, /item\.sourceType === 'tag-rendered'/, 'rendered regex snapshots must have a dedicated preview path');
+assert.match(source, /item\.sourceType === 'tag-rendered'[\s\S]*?hasSelfContainedRendererMarkup\(item\.renderedHtml\)[\s\S]*?\$\{EXT_ID\}-html-frame[\s\S]*?\$\{EXT_ID\}-regex-preview/, 'class-only CSS regex snapshots must stay in the host document instead of losing their stylesheet in an iframe');
+assert.match(source, /hasClassBasedRendererMarkup\(formatted\)[\s\S]*?sanitizeInlinePreview\(formatted\)/, 'live class-based display regex output must inherit SillyTavern styles');
+assert.match(styles, /:not\(\.theater-favorites-regex-preview \*\)/, 'the fixed panel palette must not overwrite colors supplied by a CSS display regex');
 const buildPreviewBody = source.match(/function buildPreviewHtml\(item\) \{([\s\S]*?)\n\}\n\nfunction handlePreviewResize/)?.[1] || '';
 assert.ok(buildPreviewBody.indexOf('const savedRunnable = bestRunnableHtml(item, rawBody)') < buildPreviewBody.indexOf("if (inlineBody && /<details\\b/i.test(inlineBody))"), 'saved runnable regex HTML must win before structured details fallback');
 assert.ok(buildPreviewBody.indexOf("compactRenderedMarkdownSnapshot(item.renderedHtml || '')") < buildPreviewBody.indexOf('if (item.sourceTag && item.rawSource)'), 'saved rendered Markdown must win before live regex and raw-source fallbacks');
 assert.match(source, /details > br, snow > br, ccd > br/, 'rendered Markdown snapshots must remove formatter spacer breaks');
 assert.match(source, /if \(item\.sourceTag && item\.rawSource\)/, 'all tagged theaters, including tag-html, must try the current display regex');
 assert.match(source, /messageFormatting\(item\.rawSource, item\.character\?\.name \|\| '', false, false, -1\)/, 'display regex formatting must retain the complete outer source tag');
-assert.match(source, /&& !stillHasSourceTag && hasRendererMarkup\)/, 'plain Markdown formatting must not bypass the compact Markdown preview');
+assert.match(source, /formatted && formatted !== item\.rawSource && !stillHasSourceTag/, 'live display regex output must replace the complete source tag before previewing');
+assert.match(source, /if \(hasRendererMarkup\)[\s\S]*?if \(hasClassRendererMarkup\)/, 'plain formatted text must not bypass the compact Markdown preview without renderer markup');
 assert.match(source, /async function deleteSelected\(\)[\s\S]*?state\.savedCandidateIds\.clear\(\);[\s\S]*?loadSavedSignatures\(\{ force: true \}\)[\s\S]*?addFavoriteButtons\(\);/, 'deleting a favorite must clear stale saved-button ids and refresh chat buttons');
 
 console.log('preview layout regression: ok');

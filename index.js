@@ -621,13 +621,28 @@ function editableSource(item) {
     return item.rawSource || item.renderedHtml || item.plainText || '';
 }
 
+function hasSelfContainedRendererMarkup(value) {
+    return /<(?:style|script|link|canvas|svg)\b/i.test(String(value || ''))
+        || /\bstyle\s*=/.test(String(value || ''));
+}
+
+function hasClassBasedRendererMarkup(value) {
+    return /<\w+\b[^>]*\bclass\s*=/.test(String(value || ''));
+}
+
 function buildPreviewHtml(item) {
     const rawBody = stripOuterSourceTag(item.rawSource || '', item.sourceTag);
     const textOnlyBody = stripConfiguredTags(rawBody);
     if (item.sourceType === 'tag-rendered' && item.renderedHtml) {
-        const token = `${item.id}-${Date.now()}`;
-        const documentHtml = addPreviewResizeBridge(item.renderedHtml, token);
-        return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+        if (hasSelfContainedRendererMarkup(item.renderedHtml)) {
+            const token = `${item.id}-${Date.now()}`;
+            const documentHtml = addPreviewResizeBridge(item.renderedHtml, token);
+            return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+        }
+        // Some display regexes only output class-based markup and keep their CSS
+        // in SillyTavern's document. Keeping that snapshot in the host document
+        // lets it inherit the same stylesheet; an isolated iframe would lose it.
+        return `<div class="${EXT_ID}-regex-preview">${sanitizeInlinePreview(item.renderedHtml)}</div>`;
     }
     // Regex renderers such as TH-render often keep their complete runnable page
     // inside a rendered <code> snapshot. Restore that before treating an outer
@@ -649,12 +664,17 @@ function buildPreviewHtml(item) {
             const formatted = messageFormatting(item.rawSource, item.character?.name || '', false, false, -1);
             const escapedTag = String(item.sourceTag).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const stillHasSourceTag = new RegExp(`<\\/?${escapedTag}\\b`, 'i').test(formatted || '');
-            const hasRendererMarkup = /<(?:style|script|link|canvas|svg)\b/i.test(formatted || '')
-                || /\bstyle\s*=/.test(formatted || '');
-            if (formatted && formatted !== item.rawSource && !stillHasSourceTag && hasRendererMarkup) {
-                const token = `${item.id}-${Date.now()}`;
-                const documentHtml = addPreviewResizeBridge(formatted, token);
-                return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+            const hasRendererMarkup = hasSelfContainedRendererMarkup(formatted);
+            const hasClassRendererMarkup = hasClassBasedRendererMarkup(formatted);
+            if (formatted && formatted !== item.rawSource && !stillHasSourceTag) {
+                if (hasRendererMarkup) {
+                    const token = `${item.id}-${Date.now()}`;
+                    const documentHtml = addPreviewResizeBridge(formatted, token);
+                    return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+                }
+                if (hasClassRendererMarkup) {
+                    return `<div class="${EXT_ID}-regex-preview">${sanitizeInlinePreview(formatted)}</div>`;
+                }
             }
         } catch (error) {
             console.warn('[Theater Favorites] Could not apply the current display regex.', error);
