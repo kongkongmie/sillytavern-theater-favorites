@@ -5,13 +5,15 @@ import {
     event_types,
     getCurrentChatId,
     getRequestHeaders,
+    messageFormatting,
     this_chid,
 } from '../../../../script.js';
 
 const EXT_ID = 'theater-favorites';
 const API_BASE = '/api/plugins/theater-favorites';
 const SETTINGS_KEY = 'theater-favorites-settings-v1';
-const ICON_SRC = '/scripts/extensions/third-party/theater-favorites/assets/theater-play.png';
+const EXTENSION_PATH = '/scripts/extensions/third-party/theater-favorites';
+const REMOTE_BASE = 'https://raw.githubusercontent.com/kongkongmie/sillytavern-theater-favorites/main';
 const CHATU8_IMAGE_REQUEST_EVENT = 'generate-image-request';
 const CHATU8_IMAGE_RESPONSE_EVENT = 'generate-image-response';
 
@@ -27,6 +29,8 @@ const state = {
     settings: loadSettings(),
     observer: null,
     scanTimer: 0,
+    chromeTimer: 0,
+    pendingMessages: new Set(),
     loreFrameScanTimer: 0,
     page: 1,
     pageSize: 20,
@@ -41,6 +45,10 @@ const state = {
     savedSignaturesLoading: null,
     filters: { search: '', character: '', chat: '', source: '', tag: '' },
     filterOptions: { characters: [], chats: [], sources: [], tags: [] },
+    updateChecked: false,
+    updateHintChecked: false,
+    updateAvailable: false,
+    updateVersion: '',
 };
 
 function htmlEscape(value) {
@@ -182,6 +190,44 @@ function markdownSnapshotHtml(element, markdownSource = '') {
     return element.outerHTML || element.innerHTML || '';
 }
 
+function compactRenderedMarkdownSnapshot(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '');
+    const root = template.content;
+    if (!root.querySelector('h1, h2, h3, h4, h5, h6, blockquote, ul, ol')) return '';
+    root.querySelectorAll('details').forEach(details => details.setAttribute('open', ''));
+    root.querySelectorAll('p').forEach(paragraph => {
+        if (!paragraph.textContent?.trim() && !paragraph.querySelector('img, video, audio, button')) paragraph.remove();
+    });
+    root.querySelectorAll('details > br, snow > br, ccd > br').forEach(lineBreak => lineBreak.remove());
+    root.querySelectorAll('br + br').forEach(lineBreak => lineBreak.remove());
+    return sanitizeInlinePreview(template.innerHTML, { stripInlineStyles: true });
+}
+
+function renderedRegexSnapshotHtml(element, sourceTag = '') {
+    if (!element) return '';
+    const clean = cloneWithoutFavoriteButtons(element);
+    if (!clean) return '';
+    const tag = String(sourceTag || '').toLowerCase();
+    const rootIsSourceTag = clean.tagName?.toLowerCase() === tag;
+    const richNode = clean.querySelector?.([
+        'style',
+        '[style]',
+        '[class]',
+        'section',
+        'article',
+        'header',
+        'main',
+        'footer',
+        'table',
+        'button',
+        'canvas',
+        'svg',
+    ].join(','));
+    if (!richNode) return '';
+    return rootIsSourceTag ? clean.innerHTML : clean.outerHTML;
+}
+
 function stripConfiguredTags(value) {
     const pattern = configuredTagPattern();
     return pattern ? String(value || '').replace(pattern, '') : String(value || '');
@@ -208,13 +254,14 @@ function extractTagCandidates(messageElement, rawMessage, messageId) {
             const renderedText = cleanRendered?.innerText || cleanRendered?.textContent || '';
             const innerIsMarkup = looksLikeRunnableMarkup(inner);
             const renderedMarkdown = innerIsMarkup ? '' : markdownSnapshotHtml(cleanRendered, inner);
+            const renderedRegex = innerIsMarkup || renderedMarkdown ? '' : renderedRegexSnapshotHtml(cleanRendered, tag);
             candidates.push({
                 id: makeCandidateId('tag', messageId, index, tag),
-                type: innerIsMarkup ? 'tag-html' : (renderedMarkdown ? 'tag-markdown' : 'tag-regex'),
+                type: innerIsMarkup ? 'tag-html' : (renderedRegex ? 'tag-rendered' : (renderedMarkdown ? 'tag-markdown' : 'tag-regex')),
                 sourceTag: tag,
                 rawSource,
-                renderedHtml: innerIsMarkup ? (cleanRendered?.outerHTML || inner) : renderedMarkdown,
-                plainText: innerIsMarkup || renderedMarkdown ? (renderedText || stripConfiguredTags(inner)) : stripConfiguredTags(inner),
+                renderedHtml: innerIsMarkup ? (cleanRendered?.outerHTML || inner) : (renderedRegex || renderedMarkdown),
+                plainText: innerIsMarkup || renderedRegex || renderedMarkdown ? (renderedText || stripConfiguredTags(inner)) : stripConfiguredTags(inner),
                 anchor: rendered || messageElement,
                 messageId,
             });
@@ -339,8 +386,8 @@ function bestRunnableHtml(item, rawBody) {
 }
 
 function addPreviewResizeBridge(html, token) {
-    const transparentCanvas = '<style id="theater-favorites-canvas-reset">:where(html){color:#eee9df;color-scheme:dark;background-color:transparent}:where(body){background-color:transparent}</style>';
-    const bridge = `<script>(function(){var queued=false;var send=function(){if(queued)return;queued=true;requestAnimationFrame(function(){queued=false;var body=document.body;var root=document.documentElement;var height=Math.max(root.scrollHeight,root.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);parent.postMessage({type:'theater-favorites-resize',token:${JSON.stringify(token)},height:height},'*')})};addEventListener('load',send);addEventListener('resize',send);new MutationObserver(send).observe(document.documentElement,{subtree:true,childList:true,attributes:true});if(window.ResizeObserver){var observer=new ResizeObserver(send);observer.observe(document.documentElement);if(document.body)observer.observe(document.body)}setTimeout(send,100);setTimeout(send,600)})();<\/script>`;
+    const transparentCanvas = '<style id="theater-favorites-canvas-reset">:where(html){color:#eee9df;color-scheme:dark;background-color:transparent;overflow-x:hidden}:where(body){background-color:transparent;transform-origin:top left}</style>';
+    const bridge = `<script>(function(){var queued=false,lastHeight=0,lastScale=1,lastNaturalWidth=0;var fit=function(){var body=document.body;var root=document.documentElement;if(!body)return 1;var viewport=Math.max(1,root.clientWidth);var natural=Math.max(body.scrollWidth,body.offsetWidth);var scale=natural>viewport+8?viewport/natural:1;if(Math.abs(scale-lastScale)>.002||Math.abs(natural-lastNaturalWidth)>2){lastScale=scale;lastNaturalWidth=natural;if(scale<.998){body.style.transform='scale('+scale+')';body.style.width=natural+'px';root.style.overflowX='hidden'}else{body.style.transform='';body.style.width=''}}return scale};var send=function(){if(queued)return;queued=true;requestAnimationFrame(function(){queued=false;var body=document.body;var root=document.documentElement;var scale=fit();var naturalHeight=Math.max(root.scrollHeight,root.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);var height=Math.ceil(naturalHeight*scale);if(Math.abs(height-lastHeight)<2)return;lastHeight=height;parent.postMessage({type:'theater-favorites-resize',token:${JSON.stringify(token)},height:height},'*')})};addEventListener('load',send);addEventListener('resize',send);new MutationObserver(send).observe(document.documentElement,{subtree:true,childList:true});if(window.ResizeObserver){var observer=new ResizeObserver(send);observer.observe(document.documentElement);if(document.body)observer.observe(document.body)}setTimeout(send,100);setTimeout(send,600)})();<\/script>`;
     let documentHtml = /<head\b[^>]*>/i.test(html)
         ? html.replace(/<head\b[^>]*>/i, match => `${match}${transparentCanvas}`)
         : `${transparentCanvas}${html}`;
@@ -403,9 +450,8 @@ function normalizedImagePrompt(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function liveChatu8ImageForPrompt(prompt) {
-    const expected = normalizedImagePrompt(prompt);
-    if (!expected) return null;
+function buildLiveChatu8ImageIndex() {
+    const index = new Map();
     const roots = [document];
     document.querySelectorAll('iframe').forEach(frame => {
         try {
@@ -415,30 +461,31 @@ function liveChatu8ImageForPrompt(prompt) {
         }
     });
     for (const root of roots) {
+        const requestSpans = new Map([...root.querySelectorAll('span[data-request-id]')]
+            .map(span => [span.dataset.requestId || '', span]));
         const buttons = root.querySelectorAll('.st-chatu8-image-button[data-link], .image-tag-button[data-link]');
         for (const button of buttons) {
-            if (normalizedImagePrompt(button.dataset.link) !== expected) continue;
+            const prompt = normalizedImagePrompt(button.dataset.link);
+            if (!prompt || index.has(prompt)) continue;
             const requestId = button.dataset.requestId || '';
-            const requestSpan = requestId
-                ? [...root.querySelectorAll('span[data-request-id]')].find(span => span.dataset.requestId === requestId)
-                : null;
+            const requestSpan = requestId ? requestSpans.get(requestId) : null;
             const image = requestSpan?.querySelector('img[src]')
                 || button.nextElementSibling?.querySelector?.('img[src]')
                 || button.closest('.st-chatu8-collapse-wrapper, p, div')?.querySelector?.('.st-chatu8-image-container img[src], img[alt="Generated Image"][src]');
             const src = image?.getAttribute('src') || '';
-            if (src) return { src, alt: image.getAttribute('alt') || '', transient: true };
+            if (src) index.set(prompt, { src, alt: image.getAttribute('alt') || '', transient: true });
         }
     }
-    return null;
+    return index;
 }
 
-function replaceGenerationPromptBlocks(html, imageReferences = []) {
+function replaceGenerationPromptBlocks(html, imageReferences = [], liveImageIndex = null) {
     let imageIndex = 0;
     return String(html || '')
         .replace(/<image\b[^>]*>([\s\S]*?)<imgthink\b[^>]*>[\s\S]*?<\/imgthink>([\s\S]*?)<\/image>/gi, (_match, labelSource, promptSource) => {
             const savedReference = imageReferences[imageIndex++];
             const prompt = String(promptSource || '').trim();
-            const reference = savedReference || liveChatu8ImageForPrompt(prompt);
+            const reference = savedReference || liveImageIndex?.get(normalizedImagePrompt(prompt));
             const label = stripTags(labelSource).trim() || reference?.alt || '';
             if (reference) {
                 return `<figure class="${EXT_ID}-referenced-image${reference.transient ? ` ${EXT_ID}-live-image` : ''}">${label ? `<figcaption>${htmlEscape(label)}</figcaption>` : ''}<img src="${attrEscape(reference.src)}" alt="${attrEscape(reference.alt || label)}" loading="lazy">${reference.transient ? `<small class="${EXT_ID}-image-note">引用当前聊天中的智绘姬图片，未保存原图</small>` : ''}</figure>`;
@@ -450,7 +497,9 @@ function replaceGenerationPromptBlocks(html, imageReferences = []) {
 }
 
 function stripGenerationPromptBlocks(html) {
-    return replaceGenerationPromptBlocks(html);
+    return String(html || '')
+        .replace(/<image\b[^>]*>[\s\S]*?<imgthink\b[^>]*>[\s\S]*?<\/imgthink>[\s\S]*?<\/image>/gi, '')
+        .replace(/<imgthink\b[^>]*>[\s\S]*?<\/imgthink>/gi, '');
 }
 
 function sanitizeInlinePreview(html, options = {}) {
@@ -575,6 +624,42 @@ function editableSource(item) {
 function buildPreviewHtml(item) {
     const rawBody = stripOuterSourceTag(item.rawSource || '', item.sourceTag);
     const textOnlyBody = stripConfiguredTags(rawBody);
+    if (item.sourceType === 'tag-rendered' && item.renderedHtml) {
+        const token = `${item.id}-${Date.now()}`;
+        const documentHtml = addPreviewResizeBridge(item.renderedHtml, token);
+        return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+    }
+    // Regex renderers such as TH-render often keep their complete runnable page
+    // inside a rendered <code> snapshot. Restore that before treating an outer
+    // <details> wrapper as ordinary structured text.
+    const savedRunnable = bestRunnableHtml(item, rawBody);
+    if (savedRunnable) {
+        const token = `${item.id}-${Date.now()}`;
+        const documentHtml = addPreviewResizeBridge(openDetailsForFrame(savedRunnable), token);
+        return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+    }
+    const renderedMarkdownSnapshot = compactRenderedMarkdownSnapshot(item.renderedHtml || '');
+    if (renderedMarkdownSnapshot) {
+        return `<div class="${EXT_ID}-markdown-preview">${renderedMarkdownSnapshot}</div>`;
+    }
+    if (item.sourceTag && item.rawSource) {
+        try {
+            // A display regex often targets the complete <snow>...</snow>
+            // block even when its contents also include <details> or other HTML.
+            const formatted = messageFormatting(item.rawSource, item.character?.name || '', false, false, -1);
+            const escapedTag = String(item.sourceTag).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const stillHasSourceTag = new RegExp(`<\\/?${escapedTag}\\b`, 'i').test(formatted || '');
+            const hasRendererMarkup = /<(?:style|script|link|canvas|svg)\b/i.test(formatted || '')
+                || /\bstyle\s*=/.test(formatted || '');
+            if (formatted && formatted !== item.rawSource && !stillHasSourceTag && hasRendererMarkup) {
+                const token = `${item.id}-${Date.now()}`;
+                const documentHtml = addPreviewResizeBridge(formatted, token);
+                return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
+            }
+        } catch (error) {
+            console.warn('[Theater Favorites] Could not apply the current display regex.', error);
+        }
+    }
     if (item.sourceType === 'tag-markdown' && item.renderedHtml) {
         const sourcePreview = markdownSourcePreviewHtml(rawBody);
         const fallbackPreview = sanitizeInlinePreview(stripOuterSourceTag(item.renderedHtml, item.sourceTag), { stripInlineStyles: true });
@@ -588,7 +673,9 @@ function buildPreviewHtml(item) {
         return plainPreviewHtml(textOnlyBody || item.plainText || '');
     }
     const imageReferences = referencedImagesFromSnapshot(item.renderedHtml || '');
-    const inlineBody = replaceGenerationPromptBlocks(rawBody, imageReferences);
+    const hasGenerationBlock = /<image\b[^>]*>[\s\S]*?<imgthink\b/i.test(rawBody);
+    const liveImageIndex = hasGenerationBlock ? buildLiveChatu8ImageIndex() : null;
+    const inlineBody = replaceGenerationPromptBlocks(rawBody, imageReferences, liveImageIndex);
     const token = `${item.id}-${Date.now()}`;
 
     // Nested text theaters must stay in the host document. Treating their saved
@@ -597,12 +684,6 @@ function buildPreviewHtml(item) {
     if (inlineBody && /<details\b/i.test(inlineBody)) {
         const structured = structuredDetailsPreviewHtml(inlineBody);
         if (structured) return `<div class="${EXT_ID}-structured-text-preview">${structured}</div>`;
-    }
-
-    const runnable = bestRunnableHtml(item, rawBody);
-    if (runnable) {
-        const documentHtml = addPreviewResizeBridge(openDetailsForFrame(runnable), token);
-        return `<iframe class="${EXT_ID}-html-frame" data-resize-token="${attrEscape(token)}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" srcdoc="${attrEscape(documentHtml)}"></iframe>`;
     }
 
     if (inlineBody && /<(script|style|link|body|head|meta|button|input|select|textarea|canvas)\b/i.test(inlineBody)) {
@@ -636,7 +717,7 @@ function handlePreviewResize(event) {
     const minimum = window.matchMedia('(max-width: 760px)').matches
         ? Math.min(520, Math.max(320, Math.round(window.innerHeight * 0.58)))
         : 300;
-    const maximum = 30000;
+    const maximum = Math.max(minimum, Math.min(900, Math.round(window.innerHeight * 0.72)));
     const measured = Math.ceil(Number(data.height) || minimum);
     const nextHeight = Math.max(minimum, Math.min(maximum, measured));
     const currentHeight = Math.round(frame.getBoundingClientRect().height);
@@ -894,6 +975,22 @@ function getCandidatesForMessage(messageElement) {
     ]);
 }
 
+function messageMightContainTheater(messageElement) {
+    const messageId = getMessageIdFromElement(messageElement);
+    const rawMessage = getRawMessage(messageId, messageElement);
+    const tags = state.settings.tagNames
+        .map(tag => String(tag || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .filter(Boolean);
+    if (tags.length && new RegExp(`<(?:${tags.join('|')})\\b`, 'i').test(rawMessage)) return true;
+    if (/<details\b/i.test(rawMessage)) return true;
+    const selector = [...state.settings.tagNames, 'details']
+        .map(tag => String(tag || '').trim())
+        .filter(Boolean)
+        .map(tag => CSS.escape(tag))
+        .join(',');
+    return Boolean(selector && messageElement.querySelector?.(selector));
+}
+
 function dedupeCandidates(candidates) {
     const seen = new Set();
     return candidates.filter(candidate => {
@@ -916,9 +1013,10 @@ function updateMessageFavoriteButton(button, candidates) {
     button.title = pendingCount
         ? `收藏这条消息里的 ${totalCount} 个小剧场`
         : '这条消息里的小剧场已收藏';
-    button.innerHTML = pendingCount > 1
+    const markup = pendingCount > 1
         ? `<i class="fa-solid fa-star"></i><span>${pendingCount}</span>`
         : '<i class="fa-solid fa-star"></i><span>收藏</span>';
+    if (button.innerHTML !== markup) button.innerHTML = markup;
 }
 
 function addMessageFavoriteButton(messageElement, candidates) {
@@ -939,11 +1037,18 @@ function addMessageFavoriteButton(messageElement, candidates) {
     }
 
     updateMessageFavoriteButton(button, candidates);
-    button.onclick = event => {
-        event.preventDefault();
-        event.stopPropagation();
-        saveMessageCandidates(candidates, button).catch(error => notify(`收藏失败：${error.message}`, 'error'));
-    };
+    if (!button.dataset.theaterFavoritesBound) {
+        button.dataset.theaterFavoritesBound = '1';
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const latest = getCandidatesForMessage(messageElement);
+            const fallback = latest.filter(candidate => !isUsefulIndividualAnchor(messageElement, candidate));
+            saveMessageCandidates(fallback, button)
+                .then(() => processMessage(messageElement))
+                .catch(error => notify(`收藏失败：${error.message}`, 'error'));
+        });
+    }
 }
 
 function isUsefulIndividualAnchor(messageElement, candidate) {
@@ -968,15 +1073,27 @@ function addCandidateFavoriteButton(candidate, slot = 0) {
     const saved = isCandidateSaved(candidate);
     button.disabled = saved;
     button.title = saved ? '这个小剧场已收藏' : '收藏这个小剧场';
-    button.innerHTML = saved
+    const markup = saved
         ? '<i class="fa-solid fa-check"></i><span>已收</span>'
         : '<i class="fa-solid fa-star"></i><span>收藏</span>';
-    button.style.top = `${6 + slot * 34}px`;
-    button.onclick = event => {
-        event.preventDefault();
-        event.stopPropagation();
-        saveCandidate(candidate).then(() => addCandidateFavoriteButton(candidate, slot)).catch(error => notify(`收藏失败：${error.message}`, 'error'));
-    };
+    if (button.innerHTML !== markup) button.innerHTML = markup;
+    const top = `${6 + slot * 34}px`;
+    if (button.style.top !== top) button.style.top = top;
+    if (!button.dataset.theaterFavoritesBound) {
+        button.dataset.theaterFavoritesBound = '1';
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const messageElement = anchor.closest('.mes');
+            const latest = messageElement ? getCandidatesForMessage(messageElement) : [];
+            const current = latest.find(item => item.id === button.dataset.theaterFavoriteId)
+                || latest.find(item => item.anchor === anchor && item.sourceTag === candidate.sourceTag);
+            if (!current) return notify('这条小剧场正在更新，请稍后再试。', 'error');
+            saveCandidate(current)
+                .then(() => processMessage(messageElement))
+                .catch(error => notify(`收藏失败：${error.message}`, 'error'));
+        });
+    }
 }
 
 function getLoreFrameCandidate(source) {
@@ -1114,15 +1231,10 @@ function getLoreFramePreviewCandidate(loreFrameRecord) {
 function updateLoreFrameFavoriteButton(button, candidate) {
     const saved = isCandidateSaved(candidate);
     button.disabled = saved;
-    button.innerHTML = saved
+    const markup = saved
         ? '<span aria-hidden="true">✓</span><span class="theater-favorites-loreframe-label">已收藏</span>'
-        : `<img src="${ICON_SRC}" alt=""><span class="theater-favorites-loreframe-label">收藏小剧场</span>`;
-    const image = button.querySelector('img');
-    if (image) {
-        image.style.setProperty('width', '22px');
-        image.style.setProperty('height', '22px');
-        image.style.setProperty('object-fit', 'contain');
-    }
+        : '<i class="fa-solid fa-masks-theater" aria-hidden="true"></i><span class="theater-favorites-loreframe-label">收藏小剧场</span>';
+    if (button.innerHTML !== markup) button.innerHTML = markup;
     button.title = saved ? '这个拟界文库作品已经收藏' : '把当前完整 HTML 收藏到小剧场收藏夹';
     button.setAttribute('aria-label', button.title);
 }
@@ -1147,7 +1259,7 @@ function addLoreFrameFavoriteButtons() {
         button.type = 'button';
         document.body.append(button);
         button.disabled = false;
-        button.innerHTML = `<img src="${ICON_SRC}" alt="">`;
+        button.innerHTML = '<i class="fa-solid fa-masks-theater" aria-hidden="true"></i>';
         button.title = '收藏当前拟界文库小剧场到【小剧场收藏夹】';
         button.setAttribute('aria-label', button.title);
     }
@@ -1173,44 +1285,143 @@ function addLoreFrameFavoriteButtons() {
     };
 }
 
-function addFavoriteButtons() {
-    document.querySelectorAll('#chat .mes').forEach(messageElement => {
-        const candidates = getCandidatesForMessage(messageElement);
-        const anchorSlots = new WeakMap();
-        const individualIds = new Set();
+function processMessage(messageElement) {
+    if (!messageElement?.isConnected || !messageElement.matches?.('#chat .mes')) return;
+    if (!messageMightContainTheater(messageElement)) {
+        messageElement.querySelectorAll(`.${EXT_ID}-save, .${EXT_ID}-message-save`).forEach(button => button.remove());
+        return;
+    }
+    const candidates = getCandidatesForMessage(messageElement);
+    const anchorSlots = new WeakMap();
+    const individualIds = new Set();
 
-        candidates.forEach(candidate => {
-            if (!isUsefulIndividualAnchor(messageElement, candidate)) return;
-            const slot = anchorSlots.get(candidate.anchor) || 0;
-            anchorSlots.set(candidate.anchor, slot + 1);
-            individualIds.add(candidate.id);
-            addCandidateFavoriteButton(candidate, slot);
-        });
-
-        const fallbackCandidates = candidates.filter(candidate => !individualIds.has(candidate.id));
-        addMessageFavoriteButton(messageElement, fallbackCandidates);
+    candidates.forEach(candidate => {
+        if (!isUsefulIndividualAnchor(messageElement, candidate)) return;
+        const slot = anchorSlots.get(candidate.anchor) || 0;
+        anchorSlots.set(candidate.anchor, slot + 1);
+        individualIds.add(candidate.id);
+        addCandidateFavoriteButton(candidate, slot);
     });
-    addLoreFrameFavoriteButtons();
+
+    messageElement.querySelectorAll(`.${EXT_ID}-save[data-theater-favorite-id]`).forEach(button => {
+        if (!individualIds.has(button.dataset.theaterFavoriteId || '')) button.remove();
+    });
+    const fallbackCandidates = candidates.filter(candidate => !individualIds.has(candidate.id));
+    addMessageFavoriteButton(messageElement, fallbackCandidates);
 }
 
-function scheduleScan() {
-    if (state.scanTimer) return;
+function addFavoriteButtons(messageElements = document.querySelectorAll('#chat .mes')) {
+    [...messageElements].forEach(processMessage);
+}
+
+function scheduleLoreFrameRefresh() {
+    if (!state.settings.loreFrameEnabled || state.loreFrameScanTimer) return;
+    state.loreFrameScanTimer = window.setTimeout(() => {
+        state.loreFrameScanTimer = 0;
+        addLoreFrameFavoriteButtons();
+    }, 300);
+}
+
+function handleLoreFrameInteraction(event) {
+    if (!state.settings.loreFrameEnabled) return;
+    if (document.querySelector(`#${EXT_ID}-loreframe-overlay-save`)) return scheduleLoreFrameRefresh();
+    const trigger = event.target?.closest?.('button, [role="button"], [title], [aria-label]');
+    const marker = [trigger?.textContent, trigger?.title, trigger?.getAttribute?.('aria-label')].filter(Boolean).join(' ');
+    if (/拟界|lore\s*frame|online\s*content/i.test(marker)) scheduleLoreFrameRefresh();
+}
+
+function handleLoreFrameResize() {
+    if (document.querySelector(`#${EXT_ID}-loreframe-overlay-save`)) scheduleLoreFrameRefresh();
+}
+
+function scheduleMessageScans(messages) {
+    messages.forEach(message => state.pendingMessages.add(message));
+    window.clearTimeout(state.scanTimer);
     state.scanTimer = window.setTimeout(() => {
         state.scanTimer = 0;
+        const pending = [...state.pendingMessages];
+        state.pendingMessages.clear();
+        addFavoriteButtons(pending);
+    }, 450);
+}
+
+function scheduleChromeRefresh() {
+    if (state.chromeTimer) return;
+    state.chromeTimer = window.setTimeout(() => {
+        state.chromeTimer = 0;
         addLauncher();
         addMenuEntry();
-        addFavoriteButtons();
-    }, 250);
+    }, 120);
+}
+
+function extensionOwnsNode(node) {
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+    const selector = [
+        `#${EXT_ID}-panel`,
+        `#${EXT_ID}-open`,
+        `#${EXT_ID}-menu-entry`,
+        `#${EXT_ID}-loreframe-overlay-save`,
+        `.${EXT_ID}-save`,
+        `.${EXT_ID}-message-save`,
+        `.${EXT_ID}-reliable-icon`,
+    ].join(',');
+    return Boolean(element?.matches?.(selector) || element?.closest?.(selector));
+}
+
+function mutationIsExtensionOwned(mutation) {
+    const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+    if (extensionOwnsNode(mutation.target)) return true;
+    return changedNodes.length > 0 && changedNodes.every(extensionOwnsNode);
+}
+
+function mutationMessages(mutation) {
+    const messages = new Set();
+    const collect = (node, includeDescendants = false) => {
+        const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+        const closest = element?.closest?.('#chat .mes');
+        if (closest) messages.add(closest);
+        if (includeDescendants) {
+            element?.querySelectorAll?.('.mes').forEach(message => {
+                if (message.closest('#chat')) messages.add(message);
+            });
+        }
+    };
+    collect(mutation.target);
+    mutation.addedNodes.forEach(node => collect(node, true));
+    return messages;
+}
+
+function mutationTouchesChrome(mutation) {
+    const selector = '#qr--bar, #rightSendForm, #leftSendForm, #extensionsMenu';
+    const touches = (node, includeDescendants = false) => {
+        const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+        return Boolean(element?.matches?.(selector)
+            || element?.closest?.(selector)
+            || (includeDescendants && element?.querySelector?.(selector)));
+    };
+    return touches(mutation.target)
+        || [...mutation.addedNodes, ...mutation.removedNodes].some(node => touches(node, true));
+}
+
+function handleDocumentMutations(mutations) {
+    const messages = new Set();
+    let refreshChrome = false;
+    let refreshLoreFrame = false;
+    mutations.forEach(mutation => {
+        if (mutationIsExtensionOwned(mutation)) return;
+        mutationMessages(mutation).forEach(message => messages.add(message));
+        refreshChrome ||= mutationTouchesChrome(mutation);
+        refreshLoreFrame ||= [...mutation.addedNodes].some(node => node.nodeName === 'IFRAME' || node.querySelector?.('iframe'));
+    });
+    if (messages.size) scheduleMessageScans(messages);
+    if (refreshChrome) scheduleChromeRefresh();
+    if (refreshLoreFrame) scheduleLoreFrameRefresh();
 }
 
 function startObserver() {
     if (state.observer) return;
-    state.observer = new MutationObserver(scheduleScan);
+    state.observer = new MutationObserver(handleDocumentMutations);
     state.observer.observe(document.body, { childList: true, subtree: true });
-    addFavoriteButtons();
-    if (!state.loreFrameScanTimer) {
-        state.loreFrameScanTimer = window.setInterval(addLoreFrameFavoriteButtons, 1500);
-    }
 }
 
 async function saveCandidate(candidate) {
@@ -1275,6 +1486,192 @@ async function saveMessageCandidates(candidates, button) {
     if (state.open) loadTheaters().catch(() => {});
 }
 
+function compareVersions(left, right) {
+    const a = String(left || '').replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
+    const b = String(right || '').replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
+    for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+        if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) > (b[index] || 0) ? 1 : -1;
+    }
+    return 0;
+}
+
+async function fetchJson(url) {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText || ''}`.trim());
+    return response.json();
+}
+
+function setUpdateStatus(message, kind = '') {
+    const target = document.querySelector(`#${EXT_ID}-update-status`);
+    if (!target) return;
+    target.className = `${EXT_ID}-update-status${kind ? ` ${kind}` : ''}`;
+    target.textContent = message;
+}
+
+function renderUpdateHint(available, version = '') {
+    const button = document.querySelector(`#${EXT_ID}-updates-toggle`);
+    const label = button?.querySelector(`.${EXT_ID}-update-button-label`);
+    const dot = button?.querySelector(`.${EXT_ID}-update-dot`);
+    if (!button || !label || !dot) return;
+    button.classList.toggle('has-update', available);
+    label.textContent = available ? '有更新' : '更新';
+    dot.hidden = !available;
+    button.title = available ? `发现新版本 v${version}，点击查看更新内容` : '查看版本和更新内容';
+    button.setAttribute('aria-label', button.title);
+}
+
+async function checkUpdateHintOnce() {
+    if (state.updateHintChecked) return;
+    state.updateHintChecked = true;
+    try {
+        const [localManifest, remoteManifest] = await Promise.all([
+            fetchJson(`${EXTENSION_PATH}/manifest.json?time=${Date.now()}`),
+            fetchJson(`${REMOTE_BASE}/manifest.json?time=${Date.now()}`),
+        ]);
+        const current = String(localManifest.version || '');
+        const latest = String(remoteManifest.version || '');
+        const available = compareVersions(latest, current) > 0;
+        state.updateAvailable = available;
+        state.updateVersion = latest;
+        renderUpdateHint(available, latest);
+    } catch {
+        // A quiet hint check must never interrupt opening or using the favorites panel.
+    }
+}
+
+function renderUpdateNotes(notes, latestVersion) {
+    const target = document.querySelector(`#${EXT_ID}-update-notes`);
+    if (!target) return;
+    const releases = Array.isArray(notes?.releases) ? notes.releases : [];
+    const selected = releases.find(release => String(release.version) === String(latestVersion)) || releases[0];
+    if (!selected) {
+        target.innerHTML = '<p>这个版本还没有填写更新内容。</p>';
+        return;
+    }
+    const items = Array.isArray(selected.items) ? selected.items : [];
+    target.innerHTML = `
+        <article class="${EXT_ID}-release-card">
+            <div class="${EXT_ID}-release-title"><strong>v${htmlEscape(selected.version)}</strong><span>${htmlEscape(selected.date || '')}</span></div>
+            <h3>${htmlEscape(selected.title || '更新内容')}</h3>
+            ${items.length ? `<ul>${items.map(item => `<li>${htmlEscape(item)}</li>`).join('')}</ul>` : '<p>这个版本还没有填写更新内容。</p>'}
+        </article>`;
+}
+
+async function checkForExtensionUpdates() {
+    const checkButton = document.querySelector(`#${EXT_ID}-check-update`);
+    const installButton = document.querySelector(`#${EXT_ID}-install-update`);
+    if (checkButton) checkButton.disabled = true;
+    if (installButton) installButton.hidden = true;
+    setUpdateStatus('正在检查 GitHub 上的新版本…');
+    try {
+        const [localManifest, remoteManifest, remoteNotes] = await Promise.all([
+            fetchJson(`${EXTENSION_PATH}/manifest.json?time=${Date.now()}`),
+            fetchJson(`${REMOTE_BASE}/manifest.json?time=${Date.now()}`),
+            fetchJson(`${REMOTE_BASE}/updates.json?time=${Date.now()}`).catch(() => fetchJson(`${EXTENSION_PATH}/updates.json?time=${Date.now()}`)),
+        ]);
+        const current = String(localManifest.version || '未知');
+        const latest = String(remoteManifest.version || remoteNotes.latest || '未知');
+        state.updateChecked = true;
+        state.updateVersion = latest;
+        state.updateAvailable = compareVersions(latest, current) > 0;
+        renderUpdateHint(state.updateAvailable, latest);
+        document.querySelector(`#${EXT_ID}-current-version`)?.replaceChildren(document.createTextNode(`v${current}`));
+        document.querySelector(`#${EXT_ID}-latest-version`)?.replaceChildren(document.createTextNode(`v${latest}`));
+        renderUpdateNotes(remoteNotes, latest);
+        if (state.updateAvailable) {
+            setUpdateStatus(`发现新版本 v${latest}，请先阅读更新内容。`, 'available');
+            if (installButton) installButton.hidden = false;
+        } else {
+            setUpdateStatus(compareVersions(current, latest) > 0 ? '当前安装的是开发版。' : '已经是最新版本。', 'current');
+        }
+    } catch (error) {
+        setUpdateStatus(`检查失败：${error.message || error}。可稍后重试或前往 GitHub 手动更新。`, 'error');
+    } finally {
+        if (checkButton) checkButton.disabled = false;
+    }
+}
+
+async function findExtensionInstall() {
+    const entries = await fetch('/api/extensions/discover', { headers: getRequestHeaders() }).then(response => {
+        if (!response.ok) throw new Error('无法读取扩展安装信息');
+        return response.json();
+    });
+    const list = Array.isArray(entries) ? entries : entries.extensions || [];
+    const match = list.find(entry => String(entry.name || '').replaceAll('\\', '/').split('/').pop() === EXT_ID);
+    return { extensionName: match?.name || EXT_ID, global: match?.type === 'global' };
+}
+
+async function installExtensionUpdate() {
+    if (!state.updateAvailable || !window.confirm(`更新到 v${state.updateVersion} 吗？更新完成后需要刷新页面。`)) return;
+    const button = document.querySelector(`#${EXT_ID}-install-update`);
+    if (button) button.disabled = true;
+    setUpdateStatus('正在更新，请不要关闭 SillyTavern…');
+    try {
+        const install = await findExtensionInstall();
+        const response = await fetch('/api/extensions/update', {
+            method: 'POST',
+            headers: { ...getRequestHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(install),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.error) throw new Error(result.error || `${response.status} ${response.statusText || ''}`.trim());
+        state.updateAvailable = false;
+        renderUpdateHint(false);
+        if (button) button.hidden = true;
+        setUpdateStatus('更新完成。点击“刷新页面”加载新版本。', 'current');
+        const reload = document.querySelector(`#${EXT_ID}-reload-after-update`);
+        if (reload) reload.hidden = false;
+    } catch (error) {
+        setUpdateStatus(`自动更新失败：${error.message || error}。如果是 ZIP 安装或 Git 权限问题，请使用下方链接手动更新。`, 'error');
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function setPanelView(view = 'list') {
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    if (!panel) return;
+    const settings = document.querySelector(`#${EXT_ID}-settings`);
+    const updates = document.querySelector(`#${EXT_ID}-updates`);
+    panel.classList.toggle('settings-open', view === 'settings' || view === 'tags');
+    panel.classList.toggle('tag-manager-open', view === 'tags');
+    panel.classList.toggle('updates-open', view === 'updates');
+    if (settings) settings.hidden = view !== 'settings' && view !== 'tags';
+    if (updates) updates.hidden = view !== 'updates';
+    const title = document.querySelector(`#${EXT_ID}-settings-title`);
+    if (title) title.innerHTML = view === 'tags'
+        ? '<i class="fa-solid fa-tags"></i> 标签管理'
+        : '<i class="fa-solid fa-sliders"></i> 设置';
+    ['tag-manager', 'updates', 'settings'].forEach(name => {
+        const button = document.querySelector(`#${EXT_ID}-${name === 'tag-manager' ? 'tag-manager-toggle' : `${name}-toggle`}`);
+        const active = view === (name === 'tag-manager' ? 'tags' : name);
+        button?.classList.toggle('active', active);
+        button?.setAttribute('aria-pressed', String(active));
+    });
+}
+
+function toggleUpdatesPage() {
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    const opening = !panel?.classList.contains('updates-open');
+    setPanelView(opening ? 'updates' : 'list');
+    if (opening) checkForExtensionUpdates().catch(showError);
+}
+
+function closeSubPage() {
+    setPanelView('list');
+}
+
+async function toggleSettingsPage() {
+    const panel = document.querySelector(`#${EXT_ID}-panel`);
+    const opening = !panel?.classList.contains('settings-open') || panel.classList.contains('tag-manager-open');
+    setPanelView(opening ? 'settings' : 'list');
+    if (opening) {
+        const settings = document.querySelector(`#${EXT_ID}-settings`);
+        if (settings) settings.scrollTop = 0;
+        await Promise.all([loadStorageStatus(), loadTagManager()]);
+    }
+}
+
 function buildPanel() {
     if (document.querySelector(`#${EXT_ID}-panel`)) return;
     const panel = document.createElement('section');
@@ -1283,7 +1680,7 @@ function buildPanel() {
     panel.innerHTML = `
         <div class="${EXT_ID}-head">
             <div class="${EXT_ID}-brand">
-                <div class="${EXT_ID}-mark"><img class="${EXT_ID}-app-icon" src="${ICON_SRC}" alt=""></div>
+                <div class="${EXT_ID}-mark"><i class="fa-solid fa-masks-theater" aria-hidden="true"></i></div>
                 <div>
                     <div class="${EXT_ID}-title"><span>小剧场收藏夹 <b class="${EXT_ID}-owner">@KKM</b></span></div>
                     <div class="${EXT_ID}-sub">收藏、阅读和管理聊天里的小剧场。</div>
@@ -1296,10 +1693,15 @@ function buildPanel() {
             <div class="${EXT_ID}-actions">
                 <button id="${EXT_ID}-refresh" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-rotate"></i><span>刷新</span></button>
                 <button id="${EXT_ID}-tag-manager-toggle" class="menu_button ${EXT_ID}-button" type="button" title="查看所有标签并批量删除"><i class="fa-solid fa-tags"></i><span>标签</span></button>
+                <button id="${EXT_ID}-updates-toggle" class="menu_button ${EXT_ID}-button" type="button" title="查看版本和更新内容"><i class="fa-solid fa-circle-up"></i><span class="${EXT_ID}-update-button-label">更新</span><em class="${EXT_ID}-update-dot" hidden aria-hidden="true"></em></button>
                 <button id="${EXT_ID}-settings-toggle" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-sliders"></i><span>设置</span></button>
             </div>
         </div>
         <div id="${EXT_ID}-settings" class="${EXT_ID}-settings" hidden>
+            <div class="${EXT_ID}-subpage-head">
+                <strong id="${EXT_ID}-settings-title"><i class="fa-solid fa-sliders"></i> 设置</strong>
+                <button id="${EXT_ID}-settings-back" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-arrow-left"></i><span>返回收藏夹</span></button>
+            </div>
             <div class="${EXT_ID}-settings-grid">
                 <label>识别标签<input id="${EXT_ID}-tags" type="text" value="${htmlEscape(state.settings.tagNames.join(', '))}"></label>
                 <label>details 关键词<input id="${EXT_ID}-keywords" type="text" value="${htmlEscape(state.settings.detailsKeywords.join(', '))}"></label>
@@ -1311,10 +1713,7 @@ function buildPanel() {
             <div id="${EXT_ID}-health" class="${EXT_ID}-health"></div>
             <div id="${EXT_ID}-tag-manager" class="${EXT_ID}-tag-manager">
                 <div class="${EXT_ID}-tag-manager-head">
-                    <div>
-                        <strong>标签管理</strong>
-                        <small>删除标签只会从所有收藏中移除该标签，不会删除收藏。</small>
-                    </div>
+                    <small><i class="fa-solid fa-circle-info" aria-hidden="true"></i> 移除标签不会删除收藏。</small>
                     <button id="${EXT_ID}-tag-manager-refresh" class="menu_button ${EXT_ID}-button" type="button" title="重新统计全部收藏的标签"><i class="fa-solid fa-rotate"></i><span>刷新标签</span></button>
                 </div>
                 <div id="${EXT_ID}-tag-manager-list" class="${EXT_ID}-tag-manager-list"><small>正在读取标签...</small></div>
@@ -1354,6 +1753,29 @@ function buildPanel() {
                 </div>
             </div>
         </div>
+        <div id="${EXT_ID}-updates" class="${EXT_ID}-updates" hidden>
+            <div class="${EXT_ID}-updates-head">
+                <div>
+                    <h2><i class="fa-solid fa-circle-up"></i> 插件更新</h2>
+                    <p>首次打开收藏夹只检查一次版本号；本页读取完整内容。不会定时轮询或自动更新。</p>
+                </div>
+                <button id="${EXT_ID}-updates-back" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-arrow-left"></i><span>返回收藏夹</span></button>
+            </div>
+            <div class="${EXT_ID}-version-row">
+                <div><small>当前版本</small><strong id="${EXT_ID}-current-version">读取中</strong></div>
+                <i class="fa-solid fa-arrow-right"></i>
+                <div><small>最新版本</small><strong id="${EXT_ID}-latest-version">读取中</strong></div>
+            </div>
+            <div id="${EXT_ID}-update-status" class="${EXT_ID}-update-status">尚未检查更新。</div>
+            <div class="${EXT_ID}-update-actions">
+                <button id="${EXT_ID}-check-update" class="menu_button ${EXT_ID}-button" type="button"><i class="fa-solid fa-rotate"></i><span>重新检查</span></button>
+                <button id="${EXT_ID}-install-update" class="menu_button ${EXT_ID}-button ${EXT_ID}-primary" type="button" hidden><i class="fa-solid fa-download"></i><span>安装更新</span></button>
+                <button id="${EXT_ID}-reload-after-update" class="menu_button ${EXT_ID}-button ${EXT_ID}-primary" type="button" hidden><i class="fa-solid fa-arrows-rotate"></i><span>刷新页面</span></button>
+                <a class="menu_button ${EXT_ID}-button" href="https://github.com/kongkongmie/sillytavern-theater-favorites" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i><span>手动更新</span></a>
+            </div>
+            <div class="${EXT_ID}-update-notes-title"><i class="fa-solid fa-list-check"></i><span>本次更新内容</span></div>
+            <div id="${EXT_ID}-update-notes" class="${EXT_ID}-update-notes"><p>正在读取…</p></div>
+        </div>
         <div class="${EXT_ID}-body">
             <div class="${EXT_ID}-rail-head">
                 <span>收藏列表</span>
@@ -1370,11 +1792,11 @@ function buildPanel() {
                 <select id="${EXT_ID}-tag"><option value="">全部标签</option></select>
             </div>
             <div id="${EXT_ID}-list" class="${EXT_ID}-list"></div>
-        </div>
-        <div class="${EXT_ID}-pager">
-            <button id="${EXT_ID}-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
-            <span id="${EXT_ID}-page">1 / 1</span>
-            <button id="${EXT_ID}-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+            <div class="${EXT_ID}-pager">
+                <button id="${EXT_ID}-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                <span id="${EXT_ID}-page">1 / 1</span>
+                <button id="${EXT_ID}-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
         </div>
     `;
     document.body.append(panel);
@@ -1383,19 +1805,14 @@ function buildPanel() {
     }, { passive: true });
     document.querySelector(`#${EXT_ID}-close`)?.addEventListener('click', closePanel);
     document.querySelector(`#${EXT_ID}-refresh`)?.addEventListener('click', () => loadTheaters().catch(showError));
-    document.querySelector(`#${EXT_ID}-tag-manager-toggle`)?.addEventListener('click', () => openTagManager().catch(showError));
-    document.querySelector(`#${EXT_ID}-settings-toggle`)?.addEventListener('click', () => {
-        const settings = document.querySelector(`#${EXT_ID}-settings`);
-        const panel = document.querySelector(`#${EXT_ID}-panel`);
-        if (settings) {
-            settings.hidden = !settings.hidden;
-            panel?.classList.toggle('settings-open', !settings.hidden);
-            if (!settings.hidden) {
-                loadStorageStatus().catch(showError);
-                loadTagManager().catch(showError);
-            }
-        }
-    });
+    document.querySelector(`#${EXT_ID}-tag-manager-toggle`)?.addEventListener('click', () => toggleTagManager().catch(showError));
+    document.querySelector(`#${EXT_ID}-updates-toggle`)?.addEventListener('click', toggleUpdatesPage);
+    document.querySelector(`#${EXT_ID}-updates-back`)?.addEventListener('click', closeSubPage);
+    document.querySelector(`#${EXT_ID}-settings-back`)?.addEventListener('click', closeSubPage);
+    document.querySelector(`#${EXT_ID}-check-update`)?.addEventListener('click', () => checkForExtensionUpdates().catch(showError));
+    document.querySelector(`#${EXT_ID}-install-update`)?.addEventListener('click', () => installExtensionUpdate().catch(showError));
+    document.querySelector(`#${EXT_ID}-reload-after-update`)?.addEventListener('click', () => window.location.reload());
+    document.querySelector(`#${EXT_ID}-settings-toggle`)?.addEventListener('click', () => toggleSettingsPage().catch(showError));
     document.querySelector(`#${EXT_ID}-tag-manager-refresh`)?.addEventListener('click', () => loadTagManager().catch(showError));
     document.querySelector(`#${EXT_ID}-filters-toggle`)?.addEventListener('click', event => {
         const body = document.querySelector(`.${EXT_ID}-body`);
@@ -1492,7 +1909,7 @@ function renderTagManager(tags = []) {
     target.innerHTML = tags.map(item => `
         <div class="${EXT_ID}-tag-manager-item">
             <span><i class="fa-solid fa-tag"></i>${htmlEscape(item.name)}<small>${Number(item.count) || 0} 条收藏</small></span>
-            <button class="menu_button ${EXT_ID}-button ${EXT_ID}-danger ${EXT_ID}-tag-manager-delete" type="button" data-tag="${attrEscape(item.name)}" data-count="${Number(item.count) || 0}" title="从全部收藏中删除标签 ${attrEscape(item.name)}"><i class="fa-solid fa-trash-can"></i><span>全部移除</span></button>
+            <button class="menu_button ${EXT_ID}-button ${EXT_ID}-danger ${EXT_ID}-tag-manager-delete" type="button" data-tag="${attrEscape(item.name)}" data-count="${Number(item.count) || 0}" title="从全部收藏中删除标签 ${attrEscape(item.name)}"><i class="fa-solid fa-trash-can"></i><span>移除</span></button>
         </div>`).join('');
     target.querySelectorAll(`.${EXT_ID}-tag-manager-delete[data-tag]`).forEach(button => {
         button.addEventListener('click', () => deleteManagedTag(button.dataset.tag || '', Number(button.dataset.count) || 0).catch(showError));
@@ -1504,12 +1921,15 @@ async function loadTagManager() {
     renderTagManager(data.tags || []);
 }
 
-async function openTagManager() {
+async function toggleTagManager() {
     const settings = document.querySelector(`#${EXT_ID}-settings`);
     const panel = document.querySelector(`#${EXT_ID}-panel`);
     if (!settings || !panel) return;
-    settings.hidden = false;
-    panel.classList.add('settings-open');
+    if (panel.classList.contains('tag-manager-open')) {
+        setPanelView('list');
+        return;
+    }
+    setPanelView('tags');
     await Promise.all([loadStorageStatus(), loadTagManager()]);
     const manager = document.querySelector(`#${EXT_ID}-tag-manager`);
     if (manager) {
@@ -1574,6 +1994,7 @@ function savePanelSettings() {
     state.settings.loreFrameEnabled = Boolean(document.querySelector(`#${EXT_ID}-loreframe-enabled`)?.checked);
     saveSettings();
     addFavoriteButtons();
+    addLoreFrameFavoriteButtons();
     renderHealthStatus();
     notify('设置已保存。', 'success');
 }
@@ -1622,10 +2043,12 @@ function keepPanelInViewport() {
 
 function openPanel() {
     buildPanel();
+    setPanelView('list');
     state.open = true;
     document.querySelector(`#${EXT_ID}-panel`)?.classList.add('open');
     state.selectedId = '';
     keepPanelInViewport();
+    checkUpdateHintOnce();
     loadTheaters().then(() => {
         scrollListToTop();
         keepPanelInViewport();
@@ -1758,6 +2181,10 @@ function renderList() {
             addSelectedTag().catch(showError);
         }
     });
+    list.querySelector(`.${EXT_ID}-item-tools`)?.addEventListener('toggle', event => {
+        const item = state.items.find(entry => entry.id === state.selectedId);
+        if (item) item.managementOpen = Boolean(event.currentTarget.open);
+    });
     list.querySelectorAll(`.${EXT_ID}-tag-remove[data-tag]`).forEach(button => {
         button.addEventListener('click', () => removeSelectedTag(button.dataset.tag || '').catch(showError));
     });
@@ -1805,7 +2232,7 @@ function renderExpandedTheater(item, sourceLine) {
     ` : '';
     return `
         <div class="${EXT_ID}-expanded">
-            <details class="${EXT_ID}-item-tools" ${compactItemTools ? '' : 'open'}>
+            <details class="${EXT_ID}-item-tools" ${!compactItemTools || item.managementOpen ? 'open' : ''}>
                 <summary><span><i class="fa-solid fa-screwdriver-wrench"></i>管理这条收藏</span><i class="fa-solid fa-chevron-down"></i></summary>
                 <div class="${EXT_ID}-item-tools-content">
                     <div class="${EXT_ID}-reader-actions">
@@ -1899,7 +2326,13 @@ async function addSelectedTag() {
     if (!item || !tag) return;
     if ((item.tags || []).includes(tag)) return notify('这个标签已经存在。');
     if ((item.tags || []).length >= 20) return notify('每条收藏最多 20 个标签。', 'error');
+    item.managementOpen = true;
     await saveSelectedMetadata(item, { tags: [...(item.tags || []), tag] });
+    const nextInput = document.querySelector(`#${EXT_ID}-tag-input`);
+    if (nextInput) {
+        nextInput.value = '';
+        nextInput.focus({ preventScroll: true });
+    }
     notify('标签已添加。', 'success');
 }
 
@@ -2002,8 +2435,13 @@ async function deleteSelected() {
     resetPanelShellScroll();
     await api(`/theaters/${encodeURIComponent(state.selectedId)}`, { method: 'DELETE' });
     state.selectedId = '';
+    // Candidate ids are session-local shortcuts. A deleted favorite must no
+    // longer remain saved merely because its old chat candidate id is cached.
+    state.savedCandidateIds.clear();
+    state.savedSignaturesLoaded = false;
     await loadSavedSignatures({ force: true }).catch(() => {});
     await loadTheaters();
+    addFavoriteButtons();
     resetPanelShellScroll();
 }
 
@@ -2014,19 +2452,7 @@ function changePage(delta) {
 }
 
 function reliableIconMarkup(className) {
-    return `<span class="${className} ${EXT_ID}-reliable-icon" aria-hidden="true"><img src="${ICON_SRC}" alt=""><i class="fa-solid fa-ticket" aria-hidden="true"></i></span>`;
-}
-
-function syncReliableIcons(root = document) {
-    root.querySelectorAll(`.${EXT_ID}-reliable-icon`).forEach(wrapper => {
-        const image = wrapper.querySelector('img');
-        if (!image || image.dataset.theaterFavoritesIconBound) return;
-        image.dataset.theaterFavoritesIconBound = '1';
-        const sync = () => wrapper.classList.toggle('icon-loaded', image.complete && image.naturalWidth > 0);
-        image.addEventListener('load', sync);
-        image.addEventListener('error', sync);
-        sync();
-    });
+    return `<span class="${className} ${EXT_ID}-reliable-icon" aria-hidden="true"><i class="fa-solid fa-masks-theater"></i></span>`;
 }
 
 function addLauncher() {
@@ -2047,7 +2473,6 @@ function addLauncher() {
         button.title = '小剧场收藏夹';
         button.setAttribute('aria-label', '打开小剧场收藏夹');
         button.innerHTML = reliableIconMarkup(`${EXT_ID}-qr-icon`);
-        syncReliableIcons(button);
         button.addEventListener('click', togglePanel);
         button.addEventListener('keydown', event => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -2058,7 +2483,6 @@ function addLauncher() {
     }
     button.classList.add(`${EXT_ID}-qr`, 'qr--button', 'interactable');
     if (!button.querySelector(`.${EXT_ID}-reliable-icon`)) button.innerHTML = reliableIconMarkup(`${EXT_ID}-qr-icon`);
-    syncReliableIcons(button);
     button.removeAttribute('type');
     button.setAttribute('role', 'button');
     button.tabIndex = 0;
@@ -2080,10 +2504,6 @@ function cleanupDuplicateLaunchers(activeButton) {
         root.querySelectorAll(`#${EXT_ID}-open, .${EXT_ID}-qr`).forEach(launcher => {
             if (launcher !== activeButton) duplicateNodes.add(launcher);
         });
-        root.querySelectorAll(`img[src*="theater-favorites"][src*="theater-play.png"]`).forEach(node => {
-            const launcher = node.closest(`#${EXT_ID}-open, .${EXT_ID}-qr, .qr--button, button, [role="button"], .interactable`);
-            if (launcher && launcher !== activeButton) duplicateNodes.add(launcher);
-        });
         duplicateNodes.forEach(node => {
             node.classList.add(`${EXT_ID}-duplicate-launcher`);
             node.setAttribute('aria-hidden', 'true');
@@ -2103,8 +2523,9 @@ function addMenuEntry() {
         menu.append(entry);
     }
     entry.title = '打开小剧场收藏夹';
-    entry.innerHTML = `${reliableIconMarkup(`${EXT_ID}-menu-icon`)}<span>小剧场收藏夹</span>`;
-    syncReliableIcons(entry);
+    if (!entry.querySelector(`.${EXT_ID}-reliable-icon`) || entry.querySelector('span:last-child')?.textContent !== '小剧场收藏夹') {
+        entry.innerHTML = `${reliableIconMarkup(`${EXT_ID}-menu-icon`)}<span>小剧场收藏夹</span>`;
+    }
     if (!entry.dataset.theaterFavoritesBound) {
         entry.dataset.theaterFavoritesBound = '1';
         entry.addEventListener('click', openPanel);
@@ -2126,8 +2547,11 @@ function init() {
     addMenuEntry();
     window.addEventListener('message', handlePreviewResize);
     document.addEventListener('keydown', handleGlobalKeydown);
+    document.addEventListener('click', handleLoreFrameInteraction, true);
+    window.addEventListener('resize', handleLoreFrameResize);
     globalThis.TheaterFavoritesOpen = openPanel;
-    loadSavedSignatures().then(() => addFavoriteButtons()).catch(() => {});
+    addLoreFrameFavoriteButtons();
+    loadSavedSignatures().catch(() => {}).finally(() => addFavoriteButtons());
 }
 
 if (eventSource?.on && event_types?.APP_READY) {

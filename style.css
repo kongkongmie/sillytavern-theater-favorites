@@ -30,6 +30,138 @@
     resize: none !important;
 }
 
+/* 更新页仅在用户主动打开时显示；不会承担后台检查或轮询。 */
+.theater-favorites-updates[hidden] {
+    display: none !important;
+}
+
+.theater-favorites-updates {
+    min-height: 0;
+    margin: 0 20px 18px;
+    padding: 18px;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(244, 222, 177, 0.14);
+    border-radius: 12px;
+}
+
+.theater-favorites-updates-head,
+.theater-favorites-version-row,
+.theater-favorites-update-actions,
+.theater-favorites-release-title {
+    display: flex;
+    align-items: center;
+}
+
+.theater-favorites-updates-head {
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.theater-favorites-updates-head h2,
+.theater-favorites-updates-head p,
+.theater-favorites-release-card h3 {
+    margin: 0;
+}
+
+.theater-favorites-updates-head p {
+    margin-top: 6px;
+    color: var(--theater-favorites-muted);
+    font-size: 13px;
+}
+
+.theater-favorites-version-row {
+    justify-content: center;
+    gap: 22px;
+    margin: 20px 0 14px;
+}
+
+.theater-favorites-version-row > div {
+    display: grid;
+    gap: 4px;
+    min-width: 120px;
+    padding: 12px 16px;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+}
+
+.theater-favorites-version-row strong {
+    color: #f4dba1;
+    font-size: 20px;
+}
+
+.theater-favorites-update-status {
+    margin: 12px 0;
+    padding: 11px 13px;
+    background: rgba(255, 255, 255, 0.045);
+    border-left: 3px solid rgba(244, 222, 177, 0.45);
+    border-radius: 8px;
+}
+
+.theater-favorites-update-status.available { border-left-color: #f0c865; }
+.theater-favorites-update-status.current { border-left-color: #7fd69b; }
+.theater-favorites-update-status.error { border-left-color: #ff9696; }
+
+.theater-favorites-update-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.theater-favorites-update-actions a {
+    text-decoration: none !important;
+}
+
+#theater-favorites-updates-toggle {
+    position: relative;
+    transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+#theater-favorites-updates-toggle.has-update {
+    background: rgba(219, 179, 91, 0.14) !important;
+    border-color: rgba(244, 211, 137, 0.48) !important;
+    box-shadow: inset 0 0 0 1px rgba(244, 211, 137, 0.08);
+}
+
+.theater-favorites-update-dot {
+    display: block;
+    width: 7px;
+    height: 7px;
+    margin-left: 1px;
+    background: #f0c865;
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px rgba(240, 200, 101, 0.13);
+}
+
+.theater-favorites-update-dot[hidden] {
+    display: none !important;
+}
+
+.theater-favorites-update-notes-title {
+    display: flex;
+    gap: 8px;
+    margin: 22px 0 10px;
+    color: #f4dba1;
+    font-weight: 700;
+}
+
+.theater-favorites-release-card {
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}
+
+.theater-favorites-release-title {
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.theater-favorites-release-card h3 { margin-top: 10px; }
+.theater-favorites-release-card ul { margin: 10px 0 0; padding-left: 22px; }
+.theater-favorites-release-card li + li { margin-top: 7px; }
+
 #theater-favorites-close {
     position: absolute !important;
     top: 14px !important;
@@ -41,7 +173,7 @@
     display: grid !important;
     visibility: visible !important;
     pointer-events: auto !important;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 #theater-favorites-panel:not(.open) {
@@ -59,9 +191,61 @@
     overflow: auto;
 }
 
+.theater-favorites-subpage-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.theater-favorites-subpage-head > strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #f4dba1;
+}
+
+#theater-favorites-panel.tag-manager-open .theater-favorites-settings-grid,
+#theater-favorites-panel.tag-manager-open .theater-favorites-settings-row,
+#theater-favorites-panel.tag-manager-open .theater-favorites-health,
+#theater-favorites-panel.tag-manager-open .theater-favorites-storage {
+    display: none !important;
+}
+
+#theater-favorites-panel.tag-manager-open .theater-favorites-settings {
+    align-content: start;
+    gap: 8px;
+    padding: 10px 12px;
+}
+
+#theater-favorites-panel.tag-manager-open .theater-favorites-subpage-head {
+    padding-bottom: 8px;
+}
+
+#theater-favorites-panel.settings-open:not(.tag-manager-open) .theater-favorites-tag-manager {
+    display: none !important;
+}
+
+#theater-favorites-panel .theater-favorites-actions .theater-favorites-button.active {
+    background: rgba(219, 179, 91, 0.16) !important;
+    border-color: rgba(244, 211, 137, 0.48) !important;
+}
+
 #theater-favorites-panel.settings-open .theater-favorites-body,
 #theater-favorites-panel.settings-open .theater-favorites-pager {
     display: none;
+}
+
+#theater-favorites-panel.open.updates-open {
+    grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+#theater-favorites-panel.updates-open .theater-favorites-settings,
+#theater-favorites-panel.updates-open .theater-favorites-body,
+#theater-favorites-panel.updates-open .theater-favorites-pager {
+    display: none !important;
 }
 
 #theater-favorites-panel,
@@ -122,14 +306,12 @@
     border-radius: 12px;
 }
 
-.theater-favorites-app-icon,
 .theater-favorites-qr-icon,
 .theater-favorites-menu-icon {
-    display: block;
+    display: inline-grid;
+    place-items: center;
     width: 1.2em;
     height: 1.2em;
-    object-fit: contain;
-    filter: invert(89%) sepia(22%) saturate(706%) hue-rotate(349deg) brightness(101%) contrast(91%);
 }
 
 #theater-favorites-open.theater-favorites-qr {
@@ -196,24 +378,6 @@
     color: currentColor;
 }
 
-.theater-favorites-reliable-icon > img,
-.theater-favorites-reliable-icon > i {
-    grid-area: 1 / 1;
-    width: 100%;
-    height: 100%;
-}
-
-.theater-favorites-reliable-icon > img {
-    display: block;
-    object-fit: contain;
-    opacity: 0;
-    filter: invert(89%) sepia(22%) saturate(706%) hue-rotate(349deg) brightness(101%) contrast(91%);
-}
-
-.theater-favorites-reliable-icon.icon-loaded > img {
-    opacity: 1;
-}
-
 .theater-favorites-reliable-icon > i {
     display: inline-flex;
     align-items: center;
@@ -222,17 +386,12 @@
     line-height: 1;
 }
 
-.theater-favorites-reliable-icon.icon-loaded > i {
-    display: none;
-}
-
 .theater-favorites-duplicate-launcher {
     display: none !important;
 }
 
-.theater-favorites-app-icon {
-    width: 26px;
-    height: 26px;
+.theater-favorites-mark > i {
+    font-size: 24px;
 }
 
 .theater-favorites-qr-icon,
@@ -332,8 +491,8 @@
 }
 
 .theater-favorites-primary {
-    color: #181818 !important;
-    background: #e9cf95 !important;
+    color: #fff4d6 !important;
+    background: rgba(219, 179, 91, 0.2) !important;
     border-color: rgba(244, 222, 177, 0.72) !important;
 }
 
@@ -534,11 +693,10 @@
 
 .theater-favorites-tag-manager {
     display: grid;
-    gap: 10px;
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(244, 222, 177, 0.12);
-    border-radius: 10px;
+    gap: 7px;
+    padding: 0;
+    background: transparent;
+    border: 0;
 }
 
 .theater-favorites-tag-manager-head,
@@ -554,6 +712,17 @@
     gap: 3px;
 }
 
+.theater-favorites-tag-manager-head {
+    min-height: 34px;
+    padding: 0 2px;
+}
+
+.theater-favorites-tag-manager-head > small {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
 .theater-favorites-tag-manager-head small,
 .theater-favorites-tag-manager-list > small,
 .theater-favorites-tag-manager-item small {
@@ -564,12 +733,13 @@
 
 .theater-favorites-tag-manager-list {
     display: grid;
-    gap: 7px;
+    gap: 5px;
 }
 
 .theater-favorites-tag-manager-item {
     min-width: 0;
-    padding: 8px 9px;
+    min-height: 40px;
+    padding: 5px 7px 5px 10px;
     background: rgba(7, 9, 14, 0.28);
     border: 1px solid rgba(255, 255, 255, 0.07);
     border-radius: 8px;
@@ -590,6 +760,12 @@
 
 .theater-favorites-tag-manager-item > span > small {
     flex: 0 0 auto;
+}
+
+.theater-favorites-tag-manager-item .theater-favorites-button {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 12px;
 }
 
 .theater-favorites-settings-row {
@@ -666,7 +842,7 @@
 
 .theater-favorites-body {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
     gap: 0;
     min-height: 0;
     overflow: hidden;
@@ -1322,10 +1498,10 @@
     cursor: pointer;
 }
 
-.theater-favorites-loreframe-overlay-save img {
+.theater-favorites-loreframe-overlay-save > i {
     width: 22px;
-    height: 22px;
-    object-fit: contain;
+    font-size: 18px;
+    line-height: 1;
 }
 
 .theater-favorites-loreframe-overlay-save .theater-favorites-loreframe-label {
@@ -1359,6 +1535,8 @@
         top: max(8px, env(safe-area-inset-top));
         bottom: auto;
         width: calc(100vw - 16px);
+        min-width: 0;
+        max-width: calc(100vw - 16px);
         height: calc(100vh - 16px);
         height: calc(100dvh - 16px);
         max-height: calc(100vh - 16px);
@@ -1367,7 +1545,31 @@
     }
 
     #theater-favorites-panel.open {
-        grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+        grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    #theater-favorites-panel > *,
+    .theater-favorites-toolbar,
+    .theater-favorites-actions,
+    .theater-favorites-body,
+    .theater-favorites-list,
+    .theater-favorites-entry-head,
+    .theater-favorites-item-main {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .theater-favorites-toolbar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        overflow: hidden;
+    }
+
+    .theater-favorites-actions {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        width: 100%;
+        overflow: hidden;
     }
 
     #theater-favorites-panel.open.settings-open {
@@ -1459,13 +1661,14 @@
 
     .theater-favorites-tag-manager-head,
     .theater-favorites-tag-manager-item {
-        align-items: stretch;
-        flex-direction: column;
+        align-items: center;
+        flex-direction: row;
     }
 
-    .theater-favorites-tag-manager-head .theater-favorites-button,
-    .theater-favorites-tag-manager-item .theater-favorites-button {
-        align-self: flex-start;
+    #theater-favorites-panel.tag-manager-open .theater-favorites-settings {
+        margin-left: 10px;
+        margin-right: 10px;
+        padding: 9px 10px;
     }
 
     .theater-favorites-storage-actions {
@@ -1634,6 +1837,14 @@
         padding: 0 10px !important;
     }
 
+    .theater-favorites-actions .theater-favorites-button {
+        padding: 0 6px !important;
+    }
+
+    .theater-favorites-actions .theater-favorites-button > span:not(.theater-favorites-update-dot) {
+        display: none !important;
+    }
+
     .theater-favorites-entry-head {
         grid-template-columns: 30px minmax(0, 1fr) 20px;
         gap: 8px;
@@ -1643,4 +1854,18 @@
         width: 28px;
         height: 28px;
     }
+}
+
+/* Final theme firewall: this must remain after every responsive rule. */
+#theater-favorites-panel,
+#theater-favorites-panel :where(button, a, input, select, textarea, label, span, small, strong, em, p, h1, h2, h3, h4, h5, h6, summary, li, i) {
+    color: #eee9df !important;
+    -webkit-text-fill-color: #eee9df !important;
+}
+
+#theater-favorites-panel input::placeholder,
+#theater-favorites-panel textarea::placeholder {
+    color: rgba(235, 231, 222, 0.58) !important;
+    -webkit-text-fill-color: rgba(235, 231, 222, 0.58) !important;
+    opacity: 1 !important;
 }
