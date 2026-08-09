@@ -12,7 +12,7 @@ import {
 const EXT_ID = 'theater-favorites';
 const API_BASE = '/api/plugins/theater-favorites';
 const SETTINGS_KEY = 'theater-favorites-settings-v1';
-const EXTENSION_PATH = '/scripts/extensions/third-party/theater-favorites';
+const EXTENSION_BASE_URL = new URL('.', import.meta.url).href.replace(/\/$/, '');
 const REMOTE_BASE = 'https://raw.githubusercontent.com/kongkongmie/sillytavern-theater-favorites/main';
 const CHATU8_IMAGE_REQUEST_EVENT = 'generate-image-request';
 const CHATU8_IMAGE_RESPONSE_EVENT = 'generate-image-response';
@@ -1545,7 +1545,7 @@ async function checkUpdateHintOnce() {
     state.updateHintChecked = true;
     try {
         const [localManifest, remoteManifest] = await Promise.all([
-            fetchJson(`${EXTENSION_PATH}/manifest.json?time=${Date.now()}`),
+            fetchJson(`${EXTENSION_BASE_URL}/manifest.json?time=${Date.now()}`),
             fetchJson(`${REMOTE_BASE}/manifest.json?time=${Date.now()}`),
         ]);
         const current = String(localManifest.version || '');
@@ -1585,9 +1585,9 @@ async function checkForExtensionUpdates() {
     setUpdateStatus('正在检查 GitHub 上的新版本…');
     try {
         const [localManifest, remoteManifest, remoteNotes] = await Promise.all([
-            fetchJson(`${EXTENSION_PATH}/manifest.json?time=${Date.now()}`),
+            fetchJson(`${EXTENSION_BASE_URL}/manifest.json?time=${Date.now()}`),
             fetchJson(`${REMOTE_BASE}/manifest.json?time=${Date.now()}`),
-            fetchJson(`${REMOTE_BASE}/updates.json?time=${Date.now()}`).catch(() => fetchJson(`${EXTENSION_PATH}/updates.json?time=${Date.now()}`)),
+            fetchJson(`${REMOTE_BASE}/updates.json?time=${Date.now()}`).catch(() => fetchJson(`${EXTENSION_BASE_URL}/updates.json?time=${Date.now()}`)),
         ]);
         const current = String(localManifest.version || '未知');
         const latest = String(remoteManifest.version || remoteNotes.latest || '未知');

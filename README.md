@@ -16,19 +16,21 @@ https://github.com/kongkongmie/sillytavern-theater-favorites
 
 ### 第二步：运行一次后端安装器
 
-Windows / PC：双击下面这个文件：
+Windows / PC：打开 SillyTavern 的第三方扩展目录：
 
 ```text
-SillyTavern/public/scripts/extensions/third-party/theater-favorites/install-server-plugin.bat
+SillyTavern/public/scripts/extensions/third-party
 ```
 
-安卓 Termux / Linux / Mac / 云服务器：运行：
+进入名称中包含 `theater-favorites` 的扩展文件夹，双击其中的 `install-server-plugin.bat`。不同安装方式生成的文件夹名称可能不同，请以实际文件夹为准。
+
+安卓 Termux：完整复制下面一行，粘贴后按 Enter：
 
 ```sh
-node SillyTavern/public/scripts/extensions/third-party/theater-favorites/install-server-plugin.js
+cd ~/SillyTavern && find data public -type f -path '*sillytavern-theater-favorites/install-server-plugin.js' -exec node {} \; -quit 2>/dev/null
 ```
 
-安装器会自动复制后端、备份配置并开启后端插件功能，不需要手动修改文件。
+Linux / Mac / 云服务器使用相同命令，但要把 `~/SillyTavern` 改成实际安装路径。如果命令没有任何输出，请确认路径正确，并检查前端是否完整安装在 `sillytavern-theater-favorites` 文件夹中。安装器运行后会自动复制后端、备份配置并开启后端插件功能，不需要手动修改文件。
 
 后端与配置备份统一保存在：
 
@@ -51,6 +53,13 @@ SillyTavern/backups/theater-favorites/
 - 支持搜索、角色/聊天/来源筛选、自定义标签、重命名、编辑正文和手动排序。
 - 支持完整 JSON 备份的导入导出，以及浏览器可打开的 HTML 阅读副本。
 - 实验性兼容拟界文库，可在识别设置中关闭。
+
+## v0.4.6 新用户安装路径修正
+
+- 修正新安装用户的标准扩展目录名为 `sillytavern-theater-favorites`。
+- 更新页从扩展自身的实际加载位置读取本地清单，不再依赖固定文件夹名称。
+- Windows 安装说明改为搜索安装器；Termux、Linux、Mac 和云服务器改为整行复制一次即可运行的命令，同时支持当前用户与全局扩展位置。
+- 已经正常连接后端的用户不需要重新运行安装器，更新后刷新页面即可。
 
 ## v0.4.5 CSS 显示正则热修
 

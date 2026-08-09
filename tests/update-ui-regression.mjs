@@ -6,6 +6,9 @@ const styles = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8')
 const manifest = JSON.parse(fs.readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 const updates = JSON.parse(fs.readFileSync(new URL('../updates.json', import.meta.url), 'utf8'));
 
+assert.match(source, /const EXTENSION_BASE_URL = new URL\('\.', import\.meta\.url\)\.href\.replace/, 'local update files must be resolved from the actual installed extension directory');
+assert.doesNotMatch(source, /const EXTENSION_PATH = ['"]\/scripts\/extensions\/third-party\//, 'the extension directory name must not be hard-coded');
+
 assert.equal(updates.latest, manifest.version, 'updates.json latest must match manifest version');
 assert.ok(updates.releases.some(release => release.version === manifest.version), 'current release notes must exist');
 assert.match(source, /updates-toggle[^\n]+addEventListener\('click', toggleUpdatesPage\)/, 'update page must start from a user action');
