@@ -13,6 +13,9 @@ assert.match(source, /const maximum = Math\.max\(minimum, Math\.min\(900, Math\.
 assert.doesNotMatch(source, /const maximum = 30000;/, 'HTML previews must never expand to an effectively unlimited height');
 assert.match(source, /natural>viewport\+8\?viewport\/natural:1/, 'fixed-width HTML previews must scale down to the iframe viewport');
 assert.match(source, /naturalHeight\*scale/, 'scaled previews must report their visual height rather than unscaled height');
+assert.match(source, /visibleBackground=function\(node\)/, 'HTML previews must inspect their own visible canvas color');
+assert.match(source, /fallback=background&&\(\.2126\*background\[0\]\+\.7152\*background\[1\]\+\.0722\*background\[2\]\)>170\?'#28251f':'#eee9df'/, 'light HTML canvases must receive dark inherited text while dark canvases keep light text');
+assert.match(source, /document\.querySelectorAll\('body \*'\)[\s\S]*?luminance>170[\s\S]*?node\.style\.color='#28251f'/, 'light paper-like regions inside a dark HTML page must also receive readable inherited text');
 assert.match(source, /type: innerIsMarkup \? 'tag-html' : \(renderedRegex \? 'tag-rendered'/, 'rendered regex snapshots must take priority over raw Markdown');
 assert.match(source, /item\.sourceType === 'tag-rendered'/, 'rendered regex snapshots must have a dedicated preview path');
 assert.match(source, /item\.sourceType === 'tag-rendered'[\s\S]*?hasSelfContainedRendererMarkup\(item\.renderedHtml\)[\s\S]*?\$\{EXT_ID\}-html-frame[\s\S]*?\$\{EXT_ID\}-regex-preview/, 'class-only CSS regex snapshots must stay in the host document instead of losing their stylesheet in an iframe');
