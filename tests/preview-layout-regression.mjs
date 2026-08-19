@@ -17,6 +17,11 @@ assert.match(source, /visibleBackground=function\(node\)/, 'HTML previews must i
 assert.match(source, /contrast=function\(left,right\)/, 'HTML previews must compare text and background contrast instead of matching one fixed theme color');
 assert.match(source, /contrast\(foreground,background\)>=3/, 'readable custom colors must remain untouched');
 assert.match(source, /node\.style\.setProperty\('color',replacement,'important'\)/, 'low-contrast text must receive a readable local color even when the theater CSS uses important rules');
+assert.match(source, /function dedupeCandidates\(candidates\)[\s\S]*?favoriteSignature\(body\)/, 'same-message candidates must deduplicate by complete content signature');
+assert.doesNotMatch(source, /function dedupeCandidates\(candidates\)[\s\S]*?slice\(0, 80\)/, 'same-message candidates must not deduplicate by a shared 80-character prefix');
+assert.match(source, /function isCandidateSaved\(candidate\)[\s\S]*?return state\.savedSignatures\.has\(candidateSignature\(candidate\)\)/, 'swipe branches must use complete content signatures for saved state');
+assert.doesNotMatch(source, /function isCandidateSaved\(candidate\)[\s\S]*?savedCandidateIds\.has/, 'swipe branches must not share saved state through message-position candidate ids');
+assert.match(source, /function candidateSignature\(candidate\)[\s\S]*?if \(candidate\.signature\) return candidate\.signature[\s\S]*?Object\.defineProperty\(candidate, 'signature'/, 'candidate signatures must be cached within one scan');
 assert.match(source, /type: innerIsMarkup \? 'tag-html' : \(renderedRegex \? 'tag-rendered'/, 'rendered regex snapshots must take priority over raw Markdown');
 assert.match(source, /item\.sourceType === 'tag-rendered'/, 'rendered regex snapshots must have a dedicated preview path');
 assert.match(source, /item\.sourceType === 'tag-rendered'[\s\S]*?hasSelfContainedRendererMarkup\(item\.renderedHtml\)[\s\S]*?\$\{EXT_ID\}-html-frame[\s\S]*?\$\{EXT_ID\}-regex-preview/, 'class-only CSS regex snapshots must stay in the host document instead of losing their stylesheet in an iframe');

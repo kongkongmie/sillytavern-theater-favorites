@@ -859,11 +859,17 @@ function favoriteSignature(value) {
 }
 
 function candidateSignature(candidate) {
-    return favoriteSignature(candidate.rawSource || candidate.renderedHtml || candidate.plainText || '');
+    if (candidate.signature) return candidate.signature;
+    const signature = favoriteSignature(candidate.rawSource || candidate.renderedHtml || candidate.plainText || '');
+    Object.defineProperty(candidate, 'signature', { value: signature, enumerable: false });
+    return signature;
 }
 
 function isCandidateSaved(candidate) {
-    return state.savedCandidateIds.has(candidate.id) || state.savedSignatures.has(candidateSignature(candidate));
+    // Candidate ids are only DOM-session coordinates (message id + index).
+    // SillyTavern swipes reuse those coordinates across branches, so the
+    // complete content signature is the only branch-safe saved-state key.
+    return state.savedSignatures.has(candidateSignature(candidate));
 }
 
 async function loadSavedSignatures({ force = false } = {}) {
@@ -1014,8 +1020,8 @@ function messageMightContainTheater(messageElement) {
 function dedupeCandidates(candidates) {
     const seen = new Set();
     return candidates.filter(candidate => {
-        const body = normalizeForMatch(candidate.plainText || candidate.rawSource).slice(0, 80);
-        const key = `${candidate.messageId}:${body}`;
+        const body = candidate.rawSource || candidate.renderedHtml || candidate.plainText || '';
+        const key = `${candidate.messageId}:${favoriteSignature(body)}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
