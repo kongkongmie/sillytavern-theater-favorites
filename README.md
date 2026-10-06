@@ -16,6 +16,8 @@ https://github.com/kongkongmie/sillytavern-theater-favorites
 
 ### 第二步：运行一次后端安装器
 
+**TauriTavern 用户跳过这一步。**扩展会自动使用 TauriTavern 原生扩展存储，不需要 Node 后端。收藏保存到设备数据目录；列表只读取索引，展开后才读取正文。普通 SillyTavern 用户继续按下面步骤安装后端。
+
 Windows / PC：打开 SillyTavern 的第三方扩展目录：
 
 ```text
@@ -53,6 +55,12 @@ SillyTavern/backups/theater-favorites/
 - 支持搜索、角色/聊天/来源筛选、自定义标签、重命名、编辑正文和手动排序。
 - 支持完整 JSON 备份的导入导出，以及浏览器可打开的 HTML 阅读副本。
 - 实验性兼容拟界文库，可在识别设置中关闭。
+
+## v0.4.10 TauriTavern 适配与书摘支持
+
+感谢 [@xiaoxu0257](https://github.com/xiaoxu0257) 提供改编版。TauriTavern 原生存储、轻量索引加独立正文、前端导入导出、每页数量选择、手机布局与书摘选区适配，均基于其贡献整理。合入时重新整理存储模块，补做并发保存、排序持久化、真实删除、索引重建和 HTML 导出渲染修复。
+
+普通 PC 酒馆已完成实际安装验证；TauriTavern 部分目前通过模拟接口与浏览器测试，原生设备上的重启持久化、文件导出和书摘联动仍需实测。
 
 ## v0.4.9 重新生成分支收藏修复
 

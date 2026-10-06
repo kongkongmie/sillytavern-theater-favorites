@@ -8,6 +8,8 @@ import {
     messageFormatting,
     this_chid,
 } from '../../../../script.js';
+import { createTauriStorage } from './tauri-storage.js';
+import { createReadingExport } from './reading-export.js';
 
 const EXT_ID = 'theater-favorites';
 const API_BASE = '/api/plugins/theater-favorites';
@@ -16,6 +18,7 @@ const EXTENSION_BASE_URL = new URL('.', import.meta.url).href.replace(/\/$/, '')
 const REMOTE_BASE = 'https://raw.githubusercontent.com/kongkongmie/sillytavern-theater-favorites/main';
 const CHATU8_IMAGE_REQUEST_EVENT = 'generate-image-request';
 const CHATU8_IMAGE_RESPONSE_EVENT = 'generate-image-response';
+const tauriStorage = createTauriStorage(favoriteSignature);
 
 const DEFAULT_SETTINGS = {
     tagNames: ['snow'],
@@ -33,7 +36,7 @@ const state = {
     pendingMessages: new Set(),
     loreFrameScanTimer: 0,
     page: 1,
-    pageSize: 20,
+    pageSize: loadPageSize(),
     total: 0,
     items: [],
     selectedId: '',
@@ -76,6 +79,11 @@ function loadSettings() {
     }
 }
 
+function loadPageSize() {
+    const value = Number(localStorage.getItem(`${EXT_ID}:page-size`));
+    return [10, 20, 30, 50].includes(value) ? value : 20;
+}
+
 function saveSettings() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
 }
@@ -89,6 +97,7 @@ function notify(message, kind = 'info') {
 }
 
 async function api(path, options = {}) {
+    if (window.__TAURITAVERN__) return tauriStorage.request(path, options);
     const response = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers: {
@@ -1703,6 +1712,7 @@ function buildPanel() {
     const panel = document.createElement('section');
     panel.id = `${EXT_ID}-panel`;
     panel.setAttribute('aria-label', '小剧场收藏夹');
+    if (window.__TAURITAVERN__) panel.dataset.ttMobileSurface = 'free-window';
     panel.innerHTML = `
         <div class="${EXT_ID}-head">
             <div class="${EXT_ID}-brand">
@@ -1819,6 +1829,11 @@ function buildPanel() {
             </div>
             <div id="${EXT_ID}-list" class="${EXT_ID}-list"></div>
             <div class="${EXT_ID}-pager">
+                <label for="${EXT_ID}-page-size">每页</label>
+                <select id="${EXT_ID}-page-size" class="${EXT_ID}-page-size" aria-label="每页显示数量">
+                    <option value="10">10</option><option value="20">20</option>
+                    <option value="30">30</option><option value="50">50</option>
+                </select>
                 <button id="${EXT_ID}-prev" class="menu_button ${EXT_ID}-mini" type="button" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
                 <span id="${EXT_ID}-page">1 / 1</span>
                 <button id="${EXT_ID}-next" class="menu_button ${EXT_ID}-mini" type="button" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
@@ -1864,6 +1879,14 @@ function buildPanel() {
     document.querySelector(`#${EXT_ID}-clear-all`)?.addEventListener('click', () => clearStorage().catch(showError));
     document.querySelector(`#${EXT_ID}-prev`)?.addEventListener('click', () => changePage(-1));
     document.querySelector(`#${EXT_ID}-next`)?.addEventListener('click', () => changePage(1));
+    const pageSizeSelect = document.querySelector(`#${EXT_ID}-page-size`);
+    pageSizeSelect.value = String(state.pageSize);
+    pageSizeSelect.addEventListener('change', async () => {
+        state.pageSize = Number(pageSizeSelect.value);
+        state.page = 1;
+        localStorage.setItem(`${EXT_ID}:page-size`, String(state.pageSize));
+        await loadTheaters().catch(showError);
+    });
 }
 
 function formatBytes(bytes) {
@@ -1880,25 +1903,54 @@ function renderHealthStatus() {
     const loreFrameFound = Boolean(findLoreFrameRecord() || document.getElementById('online-content-floating-window-launcher'));
     target.innerHTML = `
         <span class="ok"><i class="fa-solid fa-check"></i> 前端已加载</span>
-        <span class="${state.backendOk ? 'ok' : 'bad'}"><i class="fa-solid ${state.backendOk ? 'fa-check' : 'fa-xmark'}"></i> 后端${state.backendOk ? '已连接' : '未连接'}</span>
+        <span class="${state.backendOk ? 'ok' : 'bad'}"><i class="fa-solid ${state.backendOk ? 'fa-check' : 'fa-xmark'}"></i> ${window.__TAURITAVERN__ ? '原生存储' : '后端'}${state.backendOk ? '已连接' : '未连接'}</span>
         <span><i class="fa-solid fa-book-open"></i> 拟界文库${state.settings.loreFrameEnabled ? (loreFrameFound ? '已检测到' : '未检测到') : '兼容已关闭'}</span>`;
 }
 
 async function downloadExport(kind) {
+    if (window.__TAURITAVERN__) {
+        const theaters = await tauriStorage.exportItems();
+        let content;
+        if (kind === 'backup') {
+            content = JSON.stringify({ format: 'theater-favorites-backup', version: 1, exportedAt: new Date().toISOString(), theaters }, null, 2);
+        } else {
+            // Reuse the live preview renderer for Markdown, display regex and self-contained HTML.
+            const css = [];
+            for (const sheet of document.styleSheets) {
+                try { css.push([...sheet.cssRules].map(rule => rule.cssText).join('\n')); } catch { /* Cross-origin CSS is not readable. */ }
+            }
+            content = createReadingExport(theaters, item => buildPreviewHtml(item), css.join('\n'));
+        }
+        downloadBlob(new Blob([content], { type: kind === 'backup' ? 'application/json;charset=utf-8' : 'text/html;charset=utf-8' }), `theater-favorites-${Date.now()}.${kind === 'backup' ? 'json' : 'html'}`);
+        notify(`已导出 ${theaters.length} 条收藏。`, 'success');
+        return;
+    }
     const response = await fetch(`${API_BASE}/export/${kind}`, { headers: getRequestHeaders() });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '导出失败');
     const blob = await response.blob();
     const disposition = response.headers.get('content-disposition') || '';
     const fileName = disposition.match(/filename="([^"]+)"/)?.[1] || `theater-favorites.${kind === 'html' ? 'html' : 'json'}`;
+    downloadBlob(blob, fileName);
+}
+
+function downloadBlob(blob, fileName) {
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob); link.download = fileName; link.click();
-    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 async function importBackup(file) {
     if (!file) return;
-    if (!window.confirm(`导入备份“${file.name}”吗？已有相同内容会自动跳过。`)) return;
-    const payload = JSON.parse(await file.text());
+    let payload;
+    try { payload = JSON.parse(await file.text()); }
+    catch { throw new Error('这个文件不是有效的 JSON 备份，请不要选择 HTML 阅读文件。'); }
+    if (payload?.format !== 'theater-favorites-backup' || !Array.isArray(payload.theaters)) throw new Error('不是有效的小剧场收藏夹备份。');
+    if (!window.confirm(`导入备份“${file.name}”吗？共 ${payload.theaters.length} 条，已有相同内容会自动跳过。`)) return;
     const result = await api('/import', { method: 'POST', body: JSON.stringify(payload) });
     state.page = 1; state.savedSignaturesLoaded = false;
     await loadSavedSignatures({ force: true }); await loadTheaters(); await loadStorageStatus();
@@ -2284,7 +2336,7 @@ function renderExpandedTheater(item, sourceLine) {
             </details>
             ${editorHtml}
             <div class="${EXT_ID}-preview-label">渲染预览</div>
-            <div class="${EXT_ID}-preview">${previewHtml}</div>
+            <div class="${EXT_ID}-preview mes_text mes_block" data-book-excerpt-compatible="true">${previewHtml}</div>
             <details class="${EXT_ID}-raw">
                 <summary>原文</summary>
                 <pre>${htmlEscape(item.rawSource || item.plainText || '')}</pre>

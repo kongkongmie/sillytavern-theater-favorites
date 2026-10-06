@@ -8,3 +8,5 @@ Thumbs.db
 release/
 backups/
 node_modules/
+output/
+.playwright-cli/

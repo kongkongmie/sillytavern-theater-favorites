@@ -1869,3 +1869,29 @@
     -webkit-text-fill-color: rgba(235, 231, 222, 0.58) !important;
     opacity: 1 !important;
 }
+
+#theater-favorites-panel .theater-favorites-page-size {
+    width: 60px;
+    min-width: 0;
+    height: 32px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: #252732;
+}
+
+@media (max-width: 600px) {
+    #theater-favorites-panel[data-tt-mobile-surface="free-window"] {
+        top: calc(var(--tt-inset-top, env(safe-area-inset-top, 0px)) + 8px) !important;
+        bottom: auto !important;
+        height: calc(var(--tt-base-viewport-height, 100dvh) - var(--tt-inset-top, 0px) - var(--tt-inset-bottom, 0px) - var(--tt-ime-bottom, 0px) - 16px) !important;
+        max-height: calc(100dvh - 16px) !important;
+        min-height: 0;
+    }
+    .theater-favorites-pager { gap: 6px; }
+}
+
+#theater-favorites-panel .theater-favorites-preview,
+#theater-favorites-panel .theater-favorites-preview * {
+    -webkit-user-select: text;
+    user-select: text;
+}
